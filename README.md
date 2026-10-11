@@ -32,14 +32,18 @@ until the bot's core flows are built and tested. The separate Cloudflare
 proposal is not part of this manual token-check implementation.
 
 The manual `/check` implementation and existing commands pass 20 offline
-tests using mocked network responses. Direct DEX Screener access could
-not be verified from the development workspace. Real provider responses
-and live `/check` delivery still need validation
-from the owner's Codespace. No mock metrics are used by the running bot.
+tests using mocked network responses. On 2026-10-11, the owner's
+Telegram screenshot confirmed a live /check response for cat wif sword
+(swordcat), including the full CA, selected Meteora pool, seven supported
+pools, source links, measurements and unknown checks. An empty /check
+also returned usage guidance. These observations verify the command and
+data-delivery path; the reported metrics have not been independently
+reconciled with the source. No mock metrics are used by the running bot.
 
 Discovery, AI interpretation, monitoring, and durable user/agent state
 remain unimplemented. The first welcome-response milestone is verified;
-the manual-check milestone is implemented but awaits live acceptance.
+the manual-check delivery path is verified by the owner; independent data
+accuracy and the remaining access/failure checks below still need validation.
 
 ## How Sift will work
 
