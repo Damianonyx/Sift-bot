@@ -22,8 +22,9 @@ the first welcome-bot implementation for the existing @SiftAgentbot:
 - `/id`: shows the sender their own Telegram user ID in a private chat.
 
 All nine offline tests passed locally and in the owner's Codespace.
-On 2026-10-11, owner-provided screenshots confirmed live `/id` and
-approved-tester `/start` replies from @SiftAgentbot on mobile.
+On 2026-10-11, owner-provided screenshots confirmed live `/id`,
+`/start`, `/help`, and `/status` replies from @SiftAgentbot on mobile.
+The status reply correctly identifies scanning and monitoring as unavailable.
 The bot was run temporarily in GitHub Codespaces using Codespaces
 secrets. Continuous hosting has not been configured.
 
@@ -171,8 +172,8 @@ have not yet been confirmed in live Telegram testing.
 - [ ] An unlisted account receives a private-testing notice and can only
   retrieve its own ID.
 - [ ] Group messages do not receive replies.
-- [ ] `/help` lists the supported commands.
-- [ ] `/status` says that discovery, AI, data, and monitoring are not connected.
+- [x] `/help` lists the supported commands.
+- [x] `/status` says that discovery, AI, data, and monitoring are not connected.
 - [ ] Graceful process shutdown and restart with unchanged configuration.
 
 ### Testing in GitHub Codespaces
