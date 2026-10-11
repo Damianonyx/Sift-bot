@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { readConfig, replyFor, verifyBot } from './bot.js';
+import { readConfig, verifyBot } from './bot.js';
+import { createResponder } from './commands.js';
 import { createTelegram, TelegramError } from './telegram.js';
 
 const shutdown = new AbortController();
@@ -10,14 +11,15 @@ for (const event of ['SIGINT', 'SIGTERM']) {
 async function main() {
   const { token, allowedUserIds } = readConfig(process.env);
   const call = createTelegram(token);
+  const respond = createResponder();
   const signal = shutdown.signal;
   const identity = await call('getMe', {}, signal);
   const webhook = await call('getWebhookInfo', {}, signal);
   verifyBot(identity, webhook);
-  console.log('Sift welcome bot is running. Discovery and monitoring are not connected.');
+  console.log('Sift private test bot is running. Manual Solana checks use DEX Screener; source health is checked on demand.');
   if (allowedUserIds.size === 0) console.log('No testers configured. Only /id lookup is available.');
 
-  // In-memory offset is enough for this stateless greeting milestone.
+  // No saved strategies or monitoring state in this manual-check milestone.
   // Persistent processing/delivery records belong to the monitoring milestone.
   let offset = 0;
   while (!signal.aborted) {
@@ -27,7 +29,7 @@ async function main() {
       for (const update of updates) {
         if (signal.aborted) return;
         if (!Number.isSafeInteger(update?.update_id)) throw new TelegramError('INVALID_RESPONSE');
-        const reply = replyFor(update, allowedUserIds);
+        const reply = await respond(update, allowedUserIds, signal);
         if (reply) {
           try {
             await call('sendMessage', reply, signal);
