@@ -21,14 +21,16 @@ the first welcome-bot implementation for the existing @SiftAgentbot:
 - `/status`: an honest summary of what is and is not connected.
 - `/id`: shows the sender their own Telegram user ID in a private chat.
 
-The implementation has local automated tests with mocked Telegram
-responses. It has not yet been connected to a real bot token or
-verified with a live Telegram message. Hosting is not configured.
+All nine offline tests passed locally and in the owner's Codespace.
+On 2026-10-11, owner-provided screenshots confirmed live `/id` and
+approved-tester `/start` replies from @SiftAgentbot on mobile.
+The bot was run temporarily in GitHub Codespaces using Codespaces
+secrets. Continuous hosting has not been configured.
 
 Discovery, AI interpretation, token checks, monitoring, and durable
 user/agent state are not implemented. The product features below
-remain planned. The first milestone is complete only after an
-approved tester receives a real `/start` reply.
+remain planned. The first welcome-response milestone is verified;
+the remaining live acceptance checks below still need confirmation.
 
 ## How Sift will work
 
@@ -106,7 +108,7 @@ Example strategies will not become silent defaults.
 
 ## Development roadmap
 
-- [ ] Basic Telegram response and private tester access.
+- [x] Basic Telegram response and configured private tester access.
 - [ ] Durable user settings and agent state.
 - [ ] Real token-data checks and evidence validation.
 - [ ] Conversational setup and rule approval.
@@ -161,12 +163,31 @@ this bot; Telegram conflict errors stop it.
 
 ### First live acceptance check
 
-- An allowed tester receives the welcome on mobile.
-- An unlisted account receives a private-testing notice and can only
+Checked items reflect owner-provided screenshots; unchecked items
+have not yet been confirmed in live Telegram testing.
+
+- [x] `/id` returns the sender's own ID in a private chat.
+- [x] An allowed tester receives the welcome on mobile.
+- [ ] An unlisted account receives a private-testing notice and can only
   retrieve its own ID.
-- Group messages do not receive replies.
-- `/status` says that discovery, AI, data, and monitoring are not connected.
-- The bot process stops cleanly and can be restarted with the same configuration.
+- [ ] Group messages do not receive replies.
+- [ ] `/help` lists the supported commands.
+- [ ] `/status` says that discovery, AI, data, and monitoring are not connected.
+- [ ] Graceful process shutdown and restart with unchanged configuration.
+
+### Testing in GitHub Codespaces
+
+Set `TELEGRAM_BOT_TOKEN` and `SIFT_ALLOWED_USER_IDS` as personal
+Codespaces secrets, granting access only to this repository. Stop and
+reopen an existing Codespace after adding or changing those secrets,
+then run `npm start`. A local `.env` file is unnecessary in this setup;
+the `.env not found` notice is expected when the variables come from
+Codespaces secrets.
+
+Codespaces is a temporary test environment. Stop it when finished to
+conserve included compute usage; stored Codespaces also consume the
+storage allowance. Review account usage and billing settings before
+continued use. Running this test does not establish continuous hosting.
 
 ### Current runtime limits
 
