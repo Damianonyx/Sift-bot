@@ -61,10 +61,14 @@ export function replyFor(update, allowedUserIds) {
   return { chat_id: message.chat.id, text };
 }
 
-export function verifyBot(identity, webhook) {
+export function verifyBotIdentity(identity) {
   if (identity?.is_bot !== true || identity.username?.toLowerCase() !== BOT_USERNAME.toLowerCase()) {
     throw new Error('The configured token does not belong to @SiftAgentbot. Startup stopped.');
   }
+}
+
+export function verifyBot(identity, webhook) {
+  verifyBotIdentity(identity);
   if (typeof webhook?.url !== 'string') {
     throw new Error('Telegram webhook status could not be verified. Startup stopped.');
   }

@@ -10,7 +10,7 @@ export class TelegramError extends Error {
 
 export function createTelegram(token, { fetchImpl = fetch } = {}) {
   return async function call(method, body = {}, signal) {
-    if (!['getMe', 'getWebhookInfo', 'getUpdates', 'sendMessage'].includes(method)) {
+    if (!['getMe', 'getWebhookInfo', 'getUpdates', 'sendMessage', 'setWebhook'].includes(method)) {
       throw new TelegramError('UNSUPPORTED_METHOD');
     }
     try {
