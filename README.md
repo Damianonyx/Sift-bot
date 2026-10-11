@@ -26,7 +26,9 @@ On 2026-10-11, owner-provided screenshots confirmed live `/id`,
 `/start`, `/help`, and `/status` replies from @SiftAgentbot on mobile.
 The status reply correctly identifies scanning and monitoring as unavailable.
 The bot was run temporarily in GitHub Codespaces using Codespaces
-secrets. Continuous hosting has not been configured.
+secrets. A Cloudflare Workers webhook entry is now implemented with
+20 passing offline tests across the polling and webhook code. Deployment
+and live delivery through Cloudflare have not yet been verified.
 
 Discovery, AI interpretation, token checks, monitoring, and durable
 user/agent state are not implemented. The product features below
@@ -190,20 +192,38 @@ conserve included compute usage; stored Codespaces also consume the
 storage allowance. Review account usage and billing settings before
 continued use. Running this test does not establish continuous hosting.
 
+### Cloudflare Workers hosting
+
+Follow [the Cloudflare setup guide](docs/CLOUDFLARE.md) to deploy the
+webhook entry on Workers Free. The existing polling command remains
+available for local testing before the webhook is registered.
+
+Cloudflare receives new messages over HTTPS, so Codespaces and the
+phone browser do not need to stay open after a successful deployment.
+This hosts only the four existing commands; it does not add scanning,
+AI, token data, or monitoring. No paid plan or custom domain is required
+for this test within Cloudflare's free limits.
+
 ### Current runtime limits
 
-This version uses long polling and replies only while its process is
-running. GitHub stores the code; it does not host this always-on process.
-Hosting selection and any spending are separate later decisions.
+`npm start` uses long polling and replies only while its process is
+running. The alternative `src/worker.js` entry handles authenticated
+Telegram webhooks on Cloudflare. Stop polling before registering a
+webhook; Telegram does not support both at once. GitHub stores the code;
+it does not itself run the bot continuously.
 
 There is no database, scanning job, saved strategy, or alert history.
-Tester IDs are read from configuration at startup. Message bodies and
+Tester IDs are read from runtime configuration. Message bodies and
 bot tokens are not logged by this application. Telegram still handles
 messages under its own service policies.
 
-Update offsets are held in memory. A restart or an uncertain network
-delivery can repeat a greeting. Persistent processing and delivery
-records are required before adding discovery or monitoring alerts.
+Polling offsets are held in memory; the Worker has no durable update
+deduplication. A restart, retry, or uncertain network delivery can repeat
+a greeting. Persistent processing and delivery records are required
+before adding discovery or monitoring alerts. A successful Worker reply
+acknowledges a completed Telegram send; transient failures return 503
+for Telegram to retry. Delivery is subject to Telegram's retry policy,
+Cloudflare availability and free usage limits.
 Telegram may retain pending updates for up to 24 hours; earlier
 messages can be processed on first startup.
 
