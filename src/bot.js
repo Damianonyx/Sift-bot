@@ -10,7 +10,7 @@ export const WELCOME = [
 
 const HELP = [
   'Sift is in private testing.',
-  '/start — Welcome to Sift\n/setup — Guided criteria setup\n/setup <description> — Save an unresolved request\n/agent — Review your saved rules\n/cancel — Discard your draft\n/check <CA> — Solana market snapshot and approved-rule check\n/scan — Review/start discovery and see scan status\n/pause — Pause discovery\n/resume — Resume the same approved rules\n/stop — Stop discovery\n/alerts — Latest saved discovery reports\n/unmute <CA> — Unmute a token\n/sources — Test the candidate feed without activating\n/help — Available commands\n/status — What works today\n/id — Your Telegram user ID',
+  '/start — Welcome to Sift\n/setup — Guided criteria setup\n/setup <description> — Save an unresolved request\n/agent — Review your saved rules\n/cancel — Discard your draft\n/check <CA> — Solana market snapshot and approved-rule check\n/liquidity <CA> — Manual liquidity evidence (limited pool support)\n/scan — Review/start discovery and see scan status\n/pause — Pause discovery\n/resume — Resume the same approved rules\n/stop — Stop discovery\n/alerts — Latest saved discovery reports\n/unmute <CA> — Unmute a token\n/sources — Test the candidate feed without activating\n/help — Available commands\n/status — What works today\n/id — Your Telegram user ID',
   'Discovery uses GeckoTerminal candidates and DEX Screener market checks with limited coverage. AI interpretation, liquidity protection, wallet analysis and monitoring are not available yet. Approving rules does not start a scan; review /scan separately. No wallet connection is needed.',
 ].join('\n\n');
 

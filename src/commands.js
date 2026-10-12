@@ -4,8 +4,10 @@ import { formatTokenReport } from './token-report.js';
 import { createAgentSetup } from './agent-setup.js';
 import { formatRuleEvaluation } from './rules.js';
 import { createScanCommands, scanSummary } from './scan-commands.js';
+import { createLiquidityData, formatLiquidityReport } from './liquidity.js';
+import { SolanaRpcError } from './solana-rpc.js';
 
-export function createResponder({ market = createMarketData(), agents, feed } = {}) {
+export function createResponder({ market = createMarketData(), agents, feed, liquidity = createLiquidityData() } = {}) {
   const agentSetup = agents ? createAgentSetup(agents) : null;
   const scanCommands = agents && feed ? createScanCommands({ agents, feed }) : null;
   return async (update, allowedUserIds, signal) => {
@@ -23,6 +25,9 @@ export function createResponder({ market = createMarketData(), agents, feed } = 
       response.text += `\n\nDEX Screener: ${states[health.state]}.`;
       if (health.checkedAt !== null) response.text += `\nSource last checked: ${new Date(health.checkedAt).toISOString()}`;
       response.text += '\nA successful API request does not establish how fresh the provider data is.';
+      const liquidityHealth = liquidity.status();
+      response.text += `\n\nLiquidity evidence: /liquidity <CA> — manual Raydium classic and supported PumpSwap account observations. Protection verification remains incomplete.\nSolana RPC: ${liquidityHealth.state === 'responded' ? 'account read succeeded' : liquidityHealth.state === 'unavailable' ? 'last evidence check unavailable' : 'not checked this session'}.`;
+      if (liquidityHealth.checkedAt !== null) response.text += `\nLiquidity evidence last checked: ${new Date(liquidityHealth.checkedAt).toISOString()}`;
       if (agents) {
         const saved = agents.get(context.userId);
         response.text += `\n\nYour saved criteria: ${saved.approved ? 'approved' : 'none approved'}${saved.draft ? '; draft in progress' : ''}. Use /agent to review.`;
@@ -34,10 +39,10 @@ export function createResponder({ market = createMarketData(), agents, feed } = 
       }
       return response;
     }
-    if (context.command !== 'check') return replyFor(update, allowedUserIds);
+    if (!['check', 'liquidity'].includes(context.command)) return replyFor(update, allowedUserIds);
     const reply = (text) => ({ chat_id: context.chatId, text, link_preview_options: { is_disabled: true } });
     if (!isSolanaAddress(context.args)) {
-      return reply('Send /check followed by one full Solana token mint address (CA).\n\nExample format: /check <CA>\nUse the CA itself, without a link. Only Solana is supported in this test.');
+      return reply(`Send /${context.command} followed by one full Solana token mint address (CA).\n\nExample format: /${context.command} <CA>\nUse the CA itself, without a link. Only Solana is supported in this test.`);
     }
     const saved = agents?.get(context.userId);
     const approved = saved?.approved;
@@ -50,6 +55,19 @@ export function createResponder({ market = createMarketData(), agents, feed } = 
         return reply(`Market checks are temporarily limited. Try again in ${error.retryAfter} seconds.\nNo token assessment was made.`);
       }
       return reply('DEX Screener data is unavailable or could not be read. No token assessment was made.\n\nTry /check again later. Missing data does not count as a passed check.');
+    }
+    if (context.command === 'liquidity') {
+      try {
+        const result = await liquidity.check(snapshot, { signal });
+        if (signal?.aborted) return null;
+        return reply(formatLiquidityReport(result));
+      } catch (error) {
+        if (signal?.aborted) return null;
+        if (error instanceof SolanaRpcError && ['COOLDOWN', 'RATE_LIMITED'].includes(error.code)) {
+          return reply(`Liquidity evidence checks are temporarily limited. Try again in ${error.retryAfter} seconds.\nLiquidity protection remains unknown; no rules were changed.`);
+        }
+        return reply('Liquidity evidence could not be read. Protection remains unknown; this cannot pass a required check. Your saved rules are unchanged.');
+      }
     }
     const assessment = approved ? '\n\n' + formatRuleEvaluation(approved, snapshot) : '';
     const draftNotice = saved?.draft ? '\n\nYou have an unapproved draft. It is not applied here; use /agent to review it.' : '';
