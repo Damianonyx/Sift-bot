@@ -199,7 +199,7 @@ npm test
 
 Tests do not need credentials and do not contact Telegram.
 They use synthetic feed/market fixtures and do not contact DEX Screener or
-GeckoTerminal. This branch passes 66 offline tests on Node.js 24.19.0, including the new
+GeckoTerminal. This branch passes 76 offline tests on Node.js 24.19.0, including the new
 manual liquidity account reader.
 Use `node --test --test-isolation=none` to display individual test names.
 
@@ -497,8 +497,9 @@ uncertain delivery and restart recovery. These are not live market findings.
 
 The [liquidity evidence notes](docs/liquidity-evidence.md) describe the new
 `/liquidity <CA>` command. It selects the same market pool as `/check` and uses
-public Solana RPC to read its accounts. The first decoder supports classic
-Raydium AMM v4 only; other programs return unknown with an explanation.
+public Solana RPC to read its accounts. Supported readers cover classic Raydium AMM v4 and the documented PumpSwap
+account formats. Other programs and unsupported modes/extensions return unknown.
+See the [PumpSwap evidence notes](docs/pumpswap-evidence.md).
 
 For a supported pool, it validates the linked pool, LP mint and vault accounts,
 then reports outstanding LP supply and snapshot freshness with evidence links.
@@ -506,8 +507,9 @@ It does **not** call a supply difference a burn, verify a timed locker, calculat
 a protected percentage or satisfy the six-month requirement. Overall liquidity
 protection remains unknown. The complete user strategy stays blocked.
 
-This adds no API key, subscription or wallet connection. Direct RPC access and
-real account evidence still need Codespaces validation. Synthetic tests cover
+This adds no API key, subscription or wallet connection. The owner’s 2026-10-12 screenshot verified public RPC access and identified
+a PumpSwap pool that the first reader did not support. The new PumpSwap decoder
+still needs a live retest and independent evidence comparison. Synthetic tests cover
 account mismatches, missing/stale data, RPC failure, access controls and the
 unchanged draft/scan state. `/sources` link previews are also disabled to keep
 JSON download previews out of the mobile chat.

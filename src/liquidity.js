@@ -1,6 +1,12 @@
 import { isSolanaAddress } from './market.js';
 import { createSolanaRpc, RPC_URL, SolanaRpcError } from './solana-rpc.js';
 import { decodeRaydiumPool, observeLpAccounts, LiquidityEvidenceError, RAYDIUM_V4 } from './raydium-liquidity.js';
+import { decodePumpSwapPool, observePumpSwapLp, PUMPSWAP } from './pumpswap-liquidity.js';
+
+const READERS = new Map([
+  [RAYDIUM_V4, { name: 'Raydium classic AMM v4', decode: decodeRaydiumPool, observe: observeLpAccounts }],
+  [PUMPSWAP, { name: 'PumpSwap', decode: decodePumpSwapPool, observe: observePumpSwapLp }],
+]);
 
 const REASONS = {
   NO_POOL: 'No supported market pool was returned for this CA.',
@@ -15,6 +21,9 @@ const REASONS = {
   INCONSISTENT_LP_SUPPLY: 'The LP mint supply exceeded the pool’s recorded LP amount.',
   EMPTY_VAULT: 'A pool vault had no token balance; protection was not assessed.',
   POOL_CHANGED: 'The pool’s linked accounts changed during the check. Retry later.',
+  POOL_ADDRESS: 'The pool or LP mint address did not match the documented program seeds.',
+  UNSUPPORTED_POOL_MODE: 'This pool uses an unsupported mode or virtual-reserve configuration.',
+  UNSUPPORTED_TOKEN_EXTENSION: 'A Token-2022 extension is not supported by this reader; protection remains unknown.',
   SOURCE_UNAVAILABLE: 'Solana RPC was unavailable or denied access.',
   INVALID_RESPONSE: 'Solana RPC did not return a usable response.',
   NETWORK_OR_RESPONSE: 'Solana RPC could not be reached or read.',
@@ -39,15 +48,17 @@ export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } 
         const first = await rpc.accounts([result.pool], { signal });
         result.slot = first.slot;
         result.program = first.accounts[0]?.owner ?? null;
-        const initial = decodeRaydiumPool(first.accounts[0], snapshot.address);
+        const reader = READERS.get(result.program);
+        if (!reader) throw new LiquidityEvidenceError(first.accounts[0] ? 'UNSUPPORTED_POOL' : 'MISSING_ACCOUNT');
+        const initial = reader.decode(first.accounts[0], snapshot.address, result.pool);
         const addresses = [result.pool, initial.lpMint, initial.baseVault, initial.quoteVault];
         const final = await rpc.accounts(addresses, { signal, minContextSlot: first.slot });
-        const pool = decodeRaydiumPool(final.accounts[0], snapshot.address);
+        const pool = reader.decode(final.accounts[0], snapshot.address, result.pool);
         if (['lpMint', 'baseVault', 'quoteVault', 'baseMint', 'quoteMint', 'authority'].some((key) => initial[key] !== pool[key])) {
           throw new LiquidityEvidenceError('POOL_CHANGED');
         }
         result.slot = final.slot; result.lpMint = pool.lpMint;
-        result.observation = observeLpAccounts(pool, final.accounts.slice(1));
+        result.observation = reader.observe(pool, final.accounts.slice(1));
         let timeUnavailable = false;
         try {
           result.blockTime = await rpc.blockTime(final.slot, { signal });
@@ -85,7 +96,7 @@ export function formatLiquidityReport(result) {
     'Overall liquidity protection: UNKNOWN. This report cannot pass a required protection check.'];
   if (result.pool) lines.push(`Selected pool: ${result.pool}\nCoverage: one DEX Screener-selected pool from ${result.poolCount} supported market pools; other pools are not assessed. ${result.selection === 'reported_liquidity' ? 'Selected by highest known reported USD liquidity.' : 'Unranked fallback; pool liquidity amounts were unknown.'}`);
   if (result.reason) lines.push(REASONS[result.reason] ?? 'Required on-chain evidence could not be verified.');
-  if (result.program) lines.push(`Pool program: ${result.program === RAYDIUM_V4 ? 'Raydium classic AMM v4' : 'unsupported'}\nProgram evidence: https://solscan.io/account/${result.program}`);
+  if (result.program) lines.push(`Pool program: ${READERS.get(result.program)?.name ?? 'unsupported'}\nProgram evidence: https://solscan.io/account/${result.program}`);
   if (result.observation) {
     const observation = result.observation;
     const units = observation.outstandingLp.padStart(observation.lpDecimals + 1, '0');
@@ -93,7 +104,8 @@ export function formatLiquidityReport(result) {
     lines.push(`LP ownership tokens outstanding: ${quantity}`);
     lines.push(observation.noOutstandingLp ? 'Observed: the LP mint has zero outstanding supply at this slot. The pool and its linked vaults passed the supported account checks.' :
       'Observed: LP tokens remain outstanding. They may be held by wallets or lockers; this check does not establish which.');
-    lines.push('Burn history: unknown. Supply differences can include an unissued protocol minimum; they are not labelled as burned liquidity. No burn transaction was traced.');
+    lines.push(result.program === PUMPSWAP ? 'Burn history: unknown. The pool’s recorded LP amount and the current mint supply can differ. No burn transaction, lock owner or unlock date was verified.' :
+      'Burn history: unknown. Supply differences can include an unissued protocol minimum; they are not labelled as burned liquidity. No burn transaction was traced.');
   }
   lines.push('Verified lock percentage: unknown.\nUnlock time / six months remaining: unknown.\n100% protected across pools: unknown.\nTimed lockers, concentrated-liquidity positions and other pool programs are unsupported.');
   if (result.slot !== null) lines.push(`On-chain snapshot: finalized slot ${result.slot}\nEstimated block time: ${result.blockTime === null ? 'unknown' : new Date(result.blockTime).toISOString()}\nSnapshot freshness: ${result.freshness}${result.freshness === 'recent' ? ' (within two minutes of retrieval; not a future guarantee)' : ' — do not treat this as current verified protection'}.`);

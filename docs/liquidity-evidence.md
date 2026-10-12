@@ -13,9 +13,10 @@ fallback if none has a known amount. Only that pool is examined. Other pools,
 positions and venues remain outside this observation; a supported smaller
 pool is not substituted when the selected one is unsupported.
 
-The first decoder supports the classic Raydium AMM v4 mainnet program
-`675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8`. Raydium CPMM/CLMM,
-Meteora, PumpSwap, lockers and other programs remain unsupported. A matching
+The original decoder supports the classic Raydium AMM v4 mainnet program
+`675kPX9MHTjS2zt1qfr1NYHuzeLXfQM9H24wFSUt1Mp8`. A second reader now supports the documented PumpSwap formats; see
+[PumpSwap evidence](pumpswap-evidence.md). Raydium CPMM/CLMM, Meteora, lockers
+and other programs remain unsupported. A matching
 DEX name alone is insufficient: the RPC account's owning program is checked.
 
 The reader checks the pool's exact layout, trading state, token linkage and
@@ -99,21 +100,24 @@ health is shared without submitted addresses; settings remain per user.
 
 ## Validation
 
-66 offline tests pass, including 16 new tests for transport, binary account
+76 offline tests pass, including the initial 16 liquidity tests and 10 PumpSwap
+tests. The liquidity checks cover transport, binary account
 linkage, authority mismatches, malformed data, exact integer supply, stale
 snapshots, unsupported programs, quotas, access isolation and preservation
 of the blocked draft. All fixtures are synthetic; no test uses real credentials
 or contacts Telegram, a market API or RPC.
 
-The managed execution environment's proxy was unreachable, so direct RPC
-acceptance cannot be claimed here. Source inspection is not live validation.
+The managed execution environment's proxy was unreachable. The owner later
+verified public RPC access from Codespaces (2026-10-12 screenshot), returning
+finalized slot 456075024 and an unsupported PumpSwap program. The new PumpSwap
+decoder still needs a live retest; source inspection is not live validation.
 
 Live checks still required:
 
-- [ ] `/liquidity <CA>` reaches the public RPC from the existing Codespace.
+- [x] `/liquidity <CA>` reached public RPC from the existing Codespace.
 - [ ] A selected classic Raydium pool returns account observations; compare
   program, LP mint and vault links with the snapshot slot.
-- [ ] An unsupported pool is reported as unsupported/unknown, never unlocked.
+- [x] The screenshot reported an unsupported pool as unknown, not unlocked.
 - [ ] The owner's draft remains present and discovery remains stopped.
 
 No real burn, timed lock, lock percentage or six-month duration has been

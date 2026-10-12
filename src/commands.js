@@ -26,7 +26,7 @@ export function createResponder({ market = createMarketData(), agents, feed, liq
       if (health.checkedAt !== null) response.text += `\nSource last checked: ${new Date(health.checkedAt).toISOString()}`;
       response.text += '\nA successful API request does not establish how fresh the provider data is.';
       const liquidityHealth = liquidity.status();
-      response.text += `\n\nLiquidity evidence: /liquidity <CA> — manual Raydium classic account observations only. Protection verification remains incomplete.\nSolana RPC: ${liquidityHealth.state === 'responded' ? 'account read succeeded' : liquidityHealth.state === 'unavailable' ? 'last evidence check unavailable' : 'not checked this session'}.`;
+      response.text += `\n\nLiquidity evidence: /liquidity <CA> — manual Raydium classic and supported PumpSwap account observations. Protection verification remains incomplete.\nSolana RPC: ${liquidityHealth.state === 'responded' ? 'account read succeeded' : liquidityHealth.state === 'unavailable' ? 'last evidence check unavailable' : 'not checked this session'}.`;
       if (liquidityHealth.checkedAt !== null) response.text += `\nLiquidity evidence last checked: ${new Date(liquidityHealth.checkedAt).toISOString()}`;
       if (agents) {
         const saved = agents.get(context.userId);

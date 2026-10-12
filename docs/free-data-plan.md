@@ -87,11 +87,12 @@ the original lock duration.
 
 The `codex/liquidity-evidence` stage adds `/liquidity <CA>` using anonymous
 Solana RPC. It reads and validates the selected pool’s classic Raydium v4
-account links, LP supply and snapshot freshness. See the [decoder scope and
-sources](liquidity-evidence.md). Other programs remain unsupported. This is
+account links, LP supply and snapshot freshness. It now also includes a
+[PumpSwap reader](pumpswap-evidence.md) for the program identified in the
+owner’s live screenshot. Other programs remain unsupported. This is
 account evidence collection, not a completed burn/lock verifier; no strict
-protection rule is enabled. RPC access and real account findings still need
-live validation. The suite now contains 66 offline tests.
+protection rule is enabled. Public RPC access was verified by the owner; PumpSwap decoding and real
+account findings still need live validation. The suite now contains 76 offline tests.
 
 ## Validation state and build sequence
 
