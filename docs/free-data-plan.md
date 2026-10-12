@@ -13,7 +13,7 @@ A partially screened candidate must not be presented as a qualifying match.
 
 | Source | Useful for | Limitations and next decision |
 | --- | --- | --- |
-| GeckoTerminal public API; CoinGecko Demo as a possible free-key alternative | Newly indexed Solana pools and their token addresses | Keyless adapter implemented and offline tested; live access still unverified. CoinGecko Demo requires its own key. Coverage is indexed pools, not every token launch. |
+| GeckoTerminal public API; CoinGecko Demo as a possible free-key alternative | Newly indexed Solana pools and their token addresses | Keyless feed returned 20 parsed candidates in the owner’s Codespace; independent evidence validation pending. CoinGecko Demo requires its own key. Coverage is indexed pools, not every token launch. |
 | Existing DEX Screener adapter | Market cap estimate, selected-pool liquidity, rolling volume and pool age | Already returns manual snapshots; it cannot prove liquidity protection or developer behaviour. |
 | RugCheck public report and recently detected token endpoints | Candidate addresses and supporting risk observations | Inspect actual report schema, timestamps and evidence. A risk score or missing warning does not establish safety or absence of bundles. |
 | Solana public RPC | Current holdings of an identified wallet, transaction retrieval and on-chain state | Attribution and transaction classification require additional logic; public capacity and historical coverage are limited. |
@@ -83,20 +83,32 @@ Unknown or unsupported positions prevent claiming 100% coverage. Six months
 remaining must be defined and reviewed before activation, not inferred from
 the original lock duration.
 
+### Manual on-chain account reader
+
+The `codex/liquidity-evidence` stage adds `/liquidity <CA>` using anonymous
+Solana RPC. It reads and validates the selected pool’s classic Raydium v4
+account links, LP supply and snapshot freshness. See the [decoder scope and
+sources](liquidity-evidence.md). Other programs remain unsupported. This is
+account evidence collection, not a completed burn/lock verifier; no strict
+protection rule is enabled. RPC access and real account findings still need
+live validation. The suite now contains 66 offline tests.
+
 ## Validation state and build sequence
 
 Official documentation was inspected. The web reader did not provide
 inspectable live token payloads for the attempted public feed reads, and a
 report read failed. These observations are not successful API acceptance
-checks. Direct provider validation is still needed from a runtime with access.
-No synthetic response may stand in for that validation.
+checks. The owner subsequently verified the GeckoTerminal feed response in Codespaces:
+20 parsed candidates from 20 returned pools, zero invalid rows. Independent
+CA/pool comparisons and risk-evidence validation remain pending. No synthetic
+response may stand in for that validation.
 
 The `codex/discovery-feed` stage implements the bounded keyless adapter,
 explicit scan activation, pause/resume/stop, persisted deduplication, alert
 history and on-demand source status. It passes 50 offline tests, including a
-synthetic feed-to-alert path. No real discovery alert or runtime feed payload
-has been verified yet. `/sources` performs the next live acceptance check
-without changing or activating the owner's blocked draft. The current full
+synthetic feed-to-alert path. Owner screenshots on 2026-10-12 confirm live `/sources` access and `/scan`
+remaining stopped with an unapproved draft. No real discovery alert has been
+verified yet. The current full
 strategy still needs all of its strict risk checks before it can qualify.
 
 1. Validate one public feed and its real CA/pool/time fields; keep coverage

@@ -74,7 +74,7 @@ export function createScanCommands({ agents, feed }) {
     const context = commandFor(update);
     if (!context || !allowedUserIds.has(context.userId)) return null;
     const { command, userId: id, args } = context;
-    const reply = (text, rows) => ({ chat_id: id, text, ...(rows ? { reply_markup: { inline_keyboard: rows } } : {}) });
+    const reply = (text, rows) => ({ chat_id: id, text, link_preview_options: { is_disabled: true }, ...(rows ? { reply_markup: { inline_keyboard: rows } } : {}) });
     if (command === 'scan') {
       const saved = agents.get(id);
       const reason = blockReason(saved);

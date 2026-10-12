@@ -27,6 +27,8 @@ Sift is in private development for the existing @SiftAgentbot:
 - `/agent`: inspect the current draft or approved rules.
 - `/cancel`: discard the draft while keeping previously approved rules.
 - `/sources`: test the anonymous Solana candidate feed without activating a scan.
+- `/liquidity <CA>`: read the selected pool’s on-chain liquidity accounts where
+  supported. Protection remains unknown; this is not yet a lock verifier.
 - `/scan`: review coverage and approved rules, then explicitly start discovery.
 - `/pause`, `/resume`, `/stop`: control your discovery scan.
 - `/alerts`: inspect your latest five saved discovery reports and delivery states.
@@ -63,8 +65,10 @@ grouped commas and optional MIN/MAX labels are now accepted and regression
 tested. The input fix, a complete approved-rule flow and persistence across a real
 restart still need live Telegram validation.
 
-The discovery engine now passes offline tests for supported market rules. Live
-feed access and a real qualifying alert are still unverified. AI interpretation,
+The discovery engine now passes offline tests for supported market rules. On 2026-10-12, owner screenshots confirmed `/sources` returned 20 distinct
+Solana candidates from 20 pools with zero invalid rows, and `/scan` detected
+the unapproved draft with discovery stopped. A real qualifying alert and
+independent candidate/evidence accuracy are still unverified. AI interpretation,
 liquidity protection, wallet analysis, bundle checks and monitoring remain
 unimplemented. The owner’s full draft remains blocked because those required
 checks cannot yet be verified. The first
@@ -169,8 +173,8 @@ evidence, conversational interpretation and follow-up monitoring. Hosting
 follows those core stages. Providers, AI usage and
 any operating costs must be reviewed before paid services are introduced.
 The current external-service budget is $0. The [free-data integration plan](docs/free-data-plan.md)
-records sources and remaining validation; the free discovery adapter still
-needs a successful live runtime check.
+records sources and remaining validation; the free discovery feed has responded in the owner’s Codespace; protection
+evidence and a real qualifying alert still need validation.
 
 ## Later possibilities
 
@@ -195,7 +199,8 @@ npm test
 
 Tests do not need credentials and do not contact Telegram.
 They use synthetic feed/market fixtures and do not contact DEX Screener or
-GeckoTerminal. This branch passes 50 offline tests on Node.js 24.19.0.
+GeckoTerminal. This branch passes 66 offline tests on Node.js 24.19.0, including the new
+manual liquidity account reader.
 Use `node --test --test-isolation=none` to display individual test names.
 
 ### Connect the existing bot
@@ -411,7 +416,7 @@ submitted CAs or user instructions.
 - [ ] Stop and restart the same Codespace; `/agent` should retain settings.
 - [ ] Check a second tester cannot view or change the first user's settings.
 
-## Discovery stage: live validation pending
+## Discovery stage: feed access verified; live alerts pending
 
 This branch adds an anonymous GeckoTerminal new-pools feed and a background
 scanner. It uses the same DEX Screener adapter and approved measurable rules
@@ -471,9 +476,12 @@ or later meaningful-change alerts are not implemented yet.
 
 ### Discovery acceptance still required
 
-- [ ] `/sources` returns real Solana base-token candidates in Codespaces;
-  inspect CA/pool identities and compare provider retrieval times.
-- [ ] The existing full draft survives the update and `/scan` stays blocked.
+- [x] `/sources` returned 20 parsed candidates from 20 pools in Codespaces,
+  with zero invalid rows (owner screenshot, 2026-10-12).
+- [ ] Independently inspect candidate CA/pool identities and provider delay.
+- [x] `/scan` detects the unapproved draft, shows stopped, and offers no start
+  button (owner screenshot). Exact draft contents after upgrade still need
+  `/agent` inspection if a live comparison is required.
 - [ ] With a separately approved supported test configuration, validate one
   real qualifying alert against its evidence without relaxing thresholds to
   manufacture a match.
@@ -484,6 +492,25 @@ Offline tests cover the complete synthetic adapter-to-rule-to-alert path,
 unknown strict metrics, candidate/alert limits, owner isolation, stale buttons,
 rule changes and pauses during requests, provider errors, Telegram 429/403,
 uncertain delivery and restart recovery. These are not live market findings.
+
+## Manual liquidity evidence stage
+
+The [liquidity evidence notes](docs/liquidity-evidence.md) describe the new
+`/liquidity <CA>` command. It selects the same market pool as `/check` and uses
+public Solana RPC to read its accounts. The first decoder supports classic
+Raydium AMM v4 only; other programs return unknown with an explanation.
+
+For a supported pool, it validates the linked pool, LP mint and vault accounts,
+then reports outstanding LP supply and snapshot freshness with evidence links.
+It does **not** call a supply difference a burn, verify a timed locker, calculate
+a protected percentage or satisfy the six-month requirement. Overall liquidity
+protection remains unknown. The complete user strategy stays blocked.
+
+This adds no API key, subscription or wallet connection. Direct RPC access and
+real account evidence still need Codespaces validation. Synthetic tests cover
+account mismatches, missing/stale data, RPC failure, access controls and the
+unchanged draft/scan state. `/sources` link previews are also disabled to keep
+JSON download previews out of the mobile chat.
 
 ## Product boundaries
 
