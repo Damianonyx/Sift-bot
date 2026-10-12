@@ -2,20 +2,21 @@ export const BOT_USERNAME = 'SiftAgentbot';
 
 export const WELCOME = [
   'Sift — Your personal agent in the trenches.',
-  'Check a Solana token with /check followed by its contract address.',
+  'Sift is being built to find coins that fit your criteria and send their CAs with reasons. Personalised discovery is the goal.',
+  'Today: /setup saves rules for review, /agent shows your agent, and /check followed by a Solana CA checks market data against approved rules.',
   'Private test version. Discovery, AI screening and monitoring are not live yet.',
   'Use /help for commands or /status to see what is available.',
 ].join('\n\n');
 
 const HELP = [
   'Sift is in private testing.',
-  '/start — Welcome to Sift\n/check <CA> — Solana market snapshot\n/help — Available commands\n/status — What works today\n/id — Your Telegram user ID',
-  'Checks use DEX Screener market data and show coverage limits. Personalised screening and monitoring are not available yet. No wallet connection is needed.',
+  '/start — Welcome to Sift\n/setup — Guided criteria setup\n/setup <description> — Save an unresolved request\n/agent — Review your saved rules\n/cancel — Discard your draft\n/check <CA> — Solana market snapshot and approved-rule check\n/help — Available commands\n/status — What works today\n/id — Your Telegram user ID',
+  'Checks use DEX Screener market data and show coverage limits. AI interpretation, automatic discovery and monitoring are not available yet. Approving rules does not start a scan. No wallet connection is needed.',
 ].join('\n\n');
 
 const STATUS = [
   'Sift status',
-  'Telegram replies: available\nToken checks: /check <CA> — Solana via DEX Screener\nDiscovery: not connected\nAI interpretation: not connected\nMonitoring: not connected\nSaved criteria: not available',
+  'Telegram replies: available\nToken checks: /check <CA> — Solana via DEX Screener\nGuided criteria: /setup and /agent\nDiscovery: not connected\nAI interpretation: not connected\nMonitoring: not connected',
   'This is a manual token-check test. No scans or alerts are running.',
 ].join('\n\n');
 
@@ -43,7 +44,7 @@ export function commandFor(update) {
   const message = update?.message;
   if (message?.chat?.type !== 'private' || message.from?.is_bot ||
       !Number.isSafeInteger(message.from?.id) ||
-      !Number.isSafeInteger(message.chat.id) || typeof message.text !== 'string') {
+      !Number.isSafeInteger(message.chat.id) || message.chat.id !== message.from.id || typeof message.text !== 'string') {
     return null;
   }
 
@@ -65,7 +66,7 @@ export function replyFor(update, allowedUserIds) {
     return { chat_id: chatId, text: 'Sift is in private testing. Your account does not have tester access yet.\n\nUse /id to find the ID needed for access.' };
   }
   const text = REPLIES.get(command) ??
-    'Use /check <CA> for a Solana market snapshot, or /start, /help, /status and /id. Personalised screening and monitoring are not available yet.';
+    'Use /setup for guided rules, /agent to review them, or /check <CA> for a Solana market snapshot. AI interpretation, automatic discovery and monitoring are not available yet.';
   return { chat_id: chatId, text };
 }
 

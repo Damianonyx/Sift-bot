@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Sift's private Telegram bot with manual Solana market-data checks.",
+  "description": "Sift's private Telegram bot with saved screening criteria and manual Solana checks.",
   "engines": { "node": ">=24 <25" },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
