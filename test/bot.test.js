@@ -42,7 +42,7 @@ test('groups, other bots, callbacks and non-text messages are ignored', () => {
 
 test('help, status and unsupported commands describe the actual capability', () => {
   assert.match(replyFor(update('/help'), allowed).text, /\/status/);
-  assert.match(replyFor(update('/status'), allowed).text, /No scans or alerts are running/);
+  assert.match(replyFor(update('/status'), allowed).text, /explicit activation required/);
   assert.match(replyFor(update('/scan'), allowed).text, /not available yet/);
   assert.match(replyFor(update('find me coins'), allowed).text, /not available yet/);
   for (const command of ['/constructor', '/toString', '/__proto__']) {

@@ -9,7 +9,7 @@ const QUESTIONS = [
   'Maximum selected-pool age in minutes. Send require or warn followed by your number of minutes, or tap Skip.\nFormat example only: require 60\nPool creation is not token creation or the start of trading.',
   'Any other requirements or warnings? Send them in one message (up to 800 characters), or send none if the conditions above cover your request. Extra checks stay unresolved and block approval until Sift can interpret and verify them. Liquidity amount does not establish that liquidity is locked.',
 ];
-const LIMITATIONS = 'Solana · DEX Screener · one selected pool per token. Provider update time is unknown. Liquidity locks, holder checks, bundles, coordinated wallets, developer activity and token permissions are unsupported.\nAI interpretation and automatic discovery are not connected. Approval saves rules only; it does not start a scan.';
+const LIMITATIONS = 'Solana · DEX Screener · one selected pool per token. Provider update time is unknown. Liquidity locks, holder checks, bundles, coordinated wallets, developer activity and token permissions are unsupported.\nAI interpretation is not connected. Approval saves rules only; it does not start a scan. Use /scan to review and activate supported discovery rules separately.';
 const nameOf = (value) => typeof value === 'string' && !/[\p{Cc}\p{Cf}]/u.test(value) &&
   value.trim().length >= 1 && value.trim().length <= 32 ? value.trim() : null;
 const requirementText = (text) => text.length > 0 && text.length <= 800 &&
@@ -108,7 +108,7 @@ export function createAgentSetup(store) {
         state.revision++;
         store.put(id, state);
         return { ...view(state, id), callbackQueryId: callback.id,
-          callbackNotice: action === 'approve' ? 'Rules saved. Scanning is not connected yet.' : 'Updated.' };
+          callbackNotice: action === 'approve' ? 'Rules saved. Use /scan to review before starting discovery.' : 'Updated.' };
       });
     }
 

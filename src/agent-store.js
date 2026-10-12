@@ -2,6 +2,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateRules, assertApprovable } from './rules.js';
+import { DISCOVERY_SCHEMA, discoveryStore } from './discovery-store.js';
 
 export class AgentStoreError extends Error {
   constructor() { super('Saved agent data could not be accessed. Sift stopped to preserve existing settings.'); }
@@ -47,6 +48,7 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
       CREATE TABLE IF NOT EXISTS runtime (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
       INSERT OR IGNORE INTO runtime VALUES ('offset', 0);
     `);
+    db.exec(DISCOVERY_SCHEMA);
   } catch { try { db?.close(); } catch {} throw new AgentStoreError(); }
   const safe = (fn) => (...args) => {
     try { return fn(...args); } catch (error) {
@@ -59,6 +61,7 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
     return id;
   };
   return {
+    ...discoveryStore(db, safe),
     get: safe((id) => {
       const row = db.prepare('SELECT * FROM agents WHERE user_id = ?').get(userId(id));
       if (!row) return { revision: 0, draft: null, approved: null };
@@ -67,6 +70,10 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
     }),
     put: safe((id, state) => {
       validateState(state);
+      const previous = db.prepare('SELECT approved FROM agents WHERE user_id=?').get(userId(id));
+      if (previous?.approved && previous.approved !== JSON.stringify(state.approved)) {
+        db.prepare("UPDATE discovery_scans SET state='paused',issue='RULES_CHANGED' WHERE user_id=? AND state='active'").run(id);
+      }
       db.prepare(`INSERT INTO agents VALUES (?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET revision=excluded.revision, draft=excluded.draft, approved=excluded.approved`)
         .run(userId(id), state.revision, state.draft ? JSON.stringify(state.draft) : null,

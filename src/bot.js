@@ -3,21 +3,21 @@ export const BOT_USERNAME = 'SiftAgentbot';
 export const WELCOME = [
   'Sift — Your personal agent in the trenches.',
   'Sift is being built to find coins that fit your criteria and send their CAs with reasons. Personalised discovery is the goal.',
-  'Today: /setup saves rules for review, /agent shows your agent, and /check followed by a Solana CA checks market data against approved rules.',
-  'Private test version. Discovery, AI screening and monitoring are not live yet.',
+  'Today: /setup saves rules for review, /scan reviews supported discovery rules for activation, and /check followed by a Solana CA checks market data.',
+  'Private test version. AI interpretation, liquidity protection, wallet analysis and monitoring are not live yet. Unsupported required checks block discovery activation.',
   'Use /help for commands or /status to see what is available.',
 ].join('\n\n');
 
 const HELP = [
   'Sift is in private testing.',
-  '/start — Welcome to Sift\n/setup — Guided criteria setup\n/setup <description> — Save an unresolved request\n/agent — Review your saved rules\n/cancel — Discard your draft\n/check <CA> — Solana market snapshot and approved-rule check\n/help — Available commands\n/status — What works today\n/id — Your Telegram user ID',
-  'Checks use DEX Screener market data and show coverage limits. AI interpretation, automatic discovery and monitoring are not available yet. Approving rules does not start a scan. No wallet connection is needed.',
+  '/start — Welcome to Sift\n/setup — Guided criteria setup\n/setup <description> — Save an unresolved request\n/agent — Review your saved rules\n/cancel — Discard your draft\n/check <CA> — Solana market snapshot and approved-rule check\n/scan — Review/start discovery and see scan status\n/pause — Pause discovery\n/resume — Resume the same approved rules\n/stop — Stop discovery\n/alerts — Latest saved discovery reports\n/unmute <CA> — Unmute a token\n/sources — Test the candidate feed without activating\n/help — Available commands\n/status — What works today\n/id — Your Telegram user ID',
+  'Discovery uses GeckoTerminal candidates and DEX Screener market checks with limited coverage. AI interpretation, liquidity protection, wallet analysis and monitoring are not available yet. Approving rules does not start a scan; review /scan separately. No wallet connection is needed.',
 ].join('\n\n');
 
 const STATUS = [
   'Sift status',
-  'Telegram replies: available\nToken checks: /check <CA> — Solana via DEX Screener\nGuided criteria: /setup and /agent\nDiscovery: not connected\nAI interpretation: not connected\nMonitoring: not connected',
-  'This is a manual token-check test. No scans or alerts are running.',
+  'Telegram replies: available\nToken checks: /check <CA> — Solana via DEX Screener\nGuided criteria: /setup and /agent\nDiscovery: supported market rules only; explicit activation required\nAI interpretation: not connected\nLiquidity protection / wallet analysis / monitoring: not connected',
+  'Use /scan for your discovery status. A saved draft is not an active scan.',
 ].join('\n\n');
 
 const REPLIES = new Map([['start', WELCOME], ['help', HELP], ['status', STATUS]]);
@@ -66,7 +66,7 @@ export function replyFor(update, allowedUserIds) {
     return { chat_id: chatId, text: 'Sift is in private testing. Your account does not have tester access yet.\n\nUse /id to find the ID needed for access.' };
   }
   const text = REPLIES.get(command) ??
-    'Use /setup for guided rules, /agent to review them, or /check <CA> for a Solana market snapshot. AI interpretation, automatic discovery and monitoring are not available yet.';
+    'Use /setup for guided rules, /scan for supported discovery or /check <CA> for a Solana market snapshot. AI interpretation, liquidity protection, wallet analysis and monitoring are not available yet.';
   return { chat_id: chatId, text };
 }
 
