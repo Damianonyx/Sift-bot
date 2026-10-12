@@ -3,10 +3,10 @@ import { RULE_FIELDS, describeRule, assertApprovable } from './rules.js';
 
 const QUESTIONS = [
   'Give your agent a name (1–32 characters).',
-  'Market cap range in USD (provider estimate). Send require MIN MAX or warn MIN MAX, or tap Skip. You choose both bounds.',
-  'Minimum selected-pool liquidity in USD. Send require AMOUNT or warn AMOUNT, or tap Skip.',
-  'Minimum selected-pool volume over the last 1h in USD. Send require AMOUNT or warn AMOUNT, or tap Skip.',
-  'Maximum selected-pool age in minutes. Send require MINUTES or warn MINUTES, or tap Skip. Pool creation is not token creation or the start of trading.',
+  'Market cap range in USD (provider estimate). Send require followed by your two amounts, minimum first.\nFormat example only: require 20k 60k\nUse warn instead of require for a warning-only check, or tap Skip.',
+  'Minimum selected-pool liquidity in USD. Send require or warn followed by your amount, or tap Skip.\nFormat example only: require 10000\nLiquidity amount does not prove liquidity is locked.',
+  'Minimum selected-pool volume over the last 1h in USD. Send require or warn followed by your amount, or tap Skip.\nFormat example only: warn 5000',
+  'Maximum selected-pool age in minutes. Send require or warn followed by your number of minutes, or tap Skip.\nFormat example only: require 60\nPool creation is not token creation or the start of trading.',
   'Any other requirements or warnings? Send them in one message (up to 800 characters), or send none if the conditions above cover your request. Extra checks stay unresolved and block approval until Sift can interpret and verify them. Liquidity amount does not establish that liquidity is locked.',
 ];
 const LIMITATIONS = 'Solana · DEX Screener · one selected pool per token. Provider update time is unknown. Liquidity locks, holder checks, bundles, coordinated wallets, developer activity and token permissions are unsupported.\nAI interpretation and automatic discovery are not connected. Approval saves rules only; it does not start a scan.';
@@ -17,15 +17,20 @@ const requirementText = (text) => text.length > 0 && text.length <= 800 &&
 const blankDraft = (pendingRequirements = []) => ({ name: '', rules: [], pendingRequirements, step: 0 });
 
 function amount(text) {
-  const match = /^(\d+(?:\.\d{1,6})?)([km]?)$/i.exec(text);
+  // Accept USD notation without reinterpreting malformed comma groups.
+  const match = /^\$?((?:\d{1,3}(?:,\d{3})+|\d+)(?:\.\d{1,6})?)([km]?)$/i.exec(text);
   if (!match) return null;
-  const value = Number(match[1]) * ({ k: 1000, m: 1000000 }[match[2].toLowerCase()] ?? 1);
+  const value = Number(match[1].replaceAll(',', '')) * ({ k: 1000, m: 1000000 }[match[2].toLowerCase()] ?? 1);
   return Number.isFinite(value) && value >= 0 && value <= 1e12 ? value : null;
 }
 
 function parseRule(step, text) {
   const parts = text.trim().split(/\s+/);
-  const [mode, ...numbers] = parts;
+  const [mode, ...rawNumbers] = parts;
+  // Labels are optional, but when present their order must be explicit.
+  const numbers = step === 1 && rawNumbers.length === 4 &&
+    rawNumbers[0].toLowerCase() === 'min' && rawNumbers[2].toLowerCase() === 'max'
+    ? [rawNumbers[1], rawNumbers[3]] : rawNumbers;
   if (!['require', 'warn'].includes(mode.toLowerCase()) || numbers.length !== (step === 1 ? 2 : 1)) return null;
   const values = numbers.map(amount);
   if (values.some((v) => v === null) || step === 1 && values[0] > values[1]) return null;
@@ -47,7 +52,7 @@ function view(state, id) {
       `Set up your agent · ${step + 1}/${QUESTIONS.length}`,
       QUESTIONS[step],
       step === 0 ? 'Guided setup is available now; natural-language AI is not connected. Your thresholds will not be guessed.' :
-        step < 5 ? 'require = must pass; warn = warning only. USD amounts accept k/m suffixes. No values are preselected.' : '',
+        step < 5 ? 'require = must pass; warn = warning only. USD amounts accept $, commas and k/m suffixes. Examples show the format only; no values are preselected.' : '',
       state.draft.pendingRequirements.length ? 'Your earlier description is retained as unresolved. It cannot be approved by this guided setup.' : '',
       state.approved ? 'Your previously approved rules remain saved while you edit.' : '',
     ].filter(Boolean).join('\n\n'), [[
@@ -129,7 +134,9 @@ export function createAgentSetup(store) {
         const { step } = current.draft;
         const value = step === 0 ? nameOf(text) : step === 5 ? (requirementText(text) ? text : null) : parseRule(step, text);
         if (!value && !(step > 0 && step < 5 && text.toLowerCase() === 'skip')) {
-          return { ...view(current, id), text: 'I could not use that answer. Nothing changed.\n\n' + view(current, id).text };
+          const hint = step === 1 ? 'Start with require or warn, then enter two valid USD amounts, minimum first. For example: require 20k 60k. Nothing changed.' :
+            'I could not use that answer. Nothing changed.';
+          return { ...view(current, id), text: hint + '\n\n' + view(current, id).text };
         }
         if (step === 0) current.draft.name = value;
         else if (step === 5) {

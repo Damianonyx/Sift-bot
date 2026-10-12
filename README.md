@@ -45,11 +45,16 @@ also returned usage guidance. These observations verify the command and
 data-delivery path; the reported metrics have not been independently
 reconciled with the source. No mock metrics are used by the running bot.
 
-The criteria foundation passes 33 offline tests (including the 20 existing
+The criteria foundation passes 35 offline tests (including the 20 existing
 command/data tests). It saves drafts, approved rules and acknowledged update
 offsets in local SQLite. Automated checks cover user isolation, restart
 recovery, approval, unresolved requirements, unknown data and delivery retries.
-The new setup flow has not yet been tested in live Telegram.
+Owner screenshots confirm that the original 33 tests passed in Codespaces,
+the bot started, and live guided setup reached the market-cap question.
+Those screenshots exposed a confusing input prompt; USD signs, correctly
+grouped commas and optional MIN/MAX labels are now accepted and regression
+tested. The input fix and the complete setup/approval flow still need live
+Telegram validation.
 
 Discovery, AI interpretation and monitoring remain unimplemented. The first
 welcome-response milestone and manual-check delivery path were verified by
@@ -334,9 +339,17 @@ user-selected conditions for:
 4. Maximum selected-pool age in minutes (not token age or trading start).
 5. Any additional requirements or warnings that must not be omitted.
 
-For market cap, send `require MIN MAX` or `warn MIN MAX`; for the other numeric
-conditions send `require VALUE` or `warn VALUE`. USD amounts accept `k` and `m`.
-Use Skip for an unwanted numeric condition. No thresholds are preselected.
+For market cap, send `require` or `warn` followed by your two amounts,
+minimum first. Format examples: `require 20k 60k`, `require $20,000 $60,000`,
+or `require MIN $20,000 MAX $60,000`. Replace the example amounts with your
+own values. These examples are not default strategies.
+
+For the other numeric conditions, send `require` or `warn` followed by your
+chosen amount. USD amounts accept a dollar sign, correctly grouped commas,
+and `k`/`m` suffixes. Pool age takes plain minutes, not currency or suffixes.
+The mode must be explicit: a bare range is not silently treated as required
+or warning-only. Use Skip for an unwanted numeric condition. No thresholds
+are preselected.
 At the final question, send extra instructions or explicitly send `none`.
 Then review the exact rules and press **Approve rules**. At least one strict
 condition is necessary; empty and warning-only strategies cannot be approved.
@@ -361,6 +374,8 @@ submitted CAs or user instructions.
 
 ### Criteria acceptance still required
 
+- [x] Begin guided setup on mobile and reach the market-cap question.
+- [ ] Verify the corrected currency/label input in live Telegram.
 - [ ] Complete guided setup on mobile; verify each threshold and mode in review.
 - [ ] Try an unresolved lock/developer/bundle requirement; confirm no approval
   button appears and no partial strategy is applied.

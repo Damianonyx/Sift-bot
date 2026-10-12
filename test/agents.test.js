@@ -88,6 +88,42 @@ test('wizard does not invent thresholds or approve automatically; owner and revi
   assert.equal(store.get(57).approved, null);
 });
 
+test('market-cap entry accepts the reported dollar, comma and MIN/MAX formats without changing their meaning', (t) => {
+  const store = makeStore(t);
+  const setup = createAgentSetup(store);
+  for (const text of ['require 20k 60k', 'require $20,000 $60,000', 'require MIN $20,000 MAX $60,000', 'WARN min $20K max $60K']) {
+    for (const message of ['/cancel', '/setup', 'Format test', text]) setup(input(message), allowed);
+    assert.equal(store.get(42).draft.step, 2);
+    assert.deepEqual(store.get(42).draft.rules, [{ field: 'marketCap', mode: text.startsWith('WARN') ? 'warn' : 'require', min: 20000, max: 60000 }]);
+    assert.equal(store.get(42).approved, null);
+  }
+  for (const message of ['/cancel', '/setup', 'Format test']) setup(input(message), allowed);
+  const before = store.get(42);
+  for (const text of ['$20k - $60k', 'require $20,00 $60,000', 'require $60,000 $20,000',
+    'require MIN MAX', 'require MAX 60000 MIN 20000', 'require 20k 60k no bundles', 'require -20k 60k']) {
+    const reply = setup(input(text), allowed);
+    assert.match(reply.text, /Start with require or warn/);
+    assert.deepEqual(store.get(42), before); // never infer a mode or discard extra requirements
+  }
+});
+
+test('USD notation applies to liquidity and volume while age stays explicitly in minutes', (t) => {
+  const store = makeStore(t);
+  const setup = createAgentSetup(store);
+  for (const text of ['/setup', 'Units test', 'require 20k 60k', 'warn $10,000', 'require $2.5k']) setup(input(text), allowed);
+  assert.deepEqual(store.get(42).draft.rules.slice(1), [
+    { field: 'liquidityUsd', mode: 'warn', value: 10000 },
+    { field: 'volume1h', mode: 'require', value: 2500 },
+  ]);
+  const before = store.get(42);
+  for (const text of ['require $60', 'require 1k']) {
+    setup(input(text), allowed);
+    assert.deepEqual(store.get(42), before);
+  }
+  setup(input('require 60'), allowed);
+  assert.deepEqual(store.get(42).draft.rules.at(-1), { field: 'poolAgeMinutes', mode: 'require', value: 60 });
+});
+
 test('extra requirements cannot be skipped, forged into approval or silently erased by editing', (t) => {
   const store = makeStore(t);
   const setup = createAgentSetup(store);
