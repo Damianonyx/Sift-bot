@@ -83,7 +83,7 @@ test('wizard does not invent thresholds or approve automatically; owner and revi
   const approved = setup(callback(approve), allowed);
   assert.equal(approved.chat_id, 42);
   assert.deepEqual(store.get(42).approved, agent());
-  assert.match(approved.callbackNotice, /Scanning is not connected/);
+  assert.match(approved.callbackNotice, /review before starting discovery/);
   assert.match(setup(callback(approve), allowed).callbackNotice, /out of date/);
   assert.equal(store.get(57).approved, null);
 });

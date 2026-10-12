@@ -67,13 +67,13 @@ export function evaluateAgent(agent, snapshot) {
   return { ...result, matches: result.matches && !unresolved, unresolved };
 }
 
-export function formatRuleEvaluation(approved, snapshot) {
+export function formatRuleEvaluation(approved, snapshot, { discovery = false } = {}) {
   const result = evaluateAgent(approved, snapshot);
   return [
     `Your approved rules · ${approved.name}`,
     result.matches ? 'Available data passes all required rules.' : 'Required rules are not all satisfied; unknown results cannot pass.',
     ...result.checks.map((rule) => `${rule.state.toUpperCase()} · ${describeRule(rule)}`),
     ...(result.unresolved ? ['UNKNOWN · Additional requirements remain unresolved; this cannot qualify.'] : []),
-    'Manual evaluation only. Automatic discovery is not running.',
+    discovery ? 'Evaluated at the market-data retrieval time shown above.' : 'Manual evaluation of this submitted CA. Use /scan to review discovery status.',
   ].join('\n');
 }

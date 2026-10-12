@@ -13,7 +13,7 @@ A partially screened candidate must not be presented as a qualifying match.
 
 | Source | Useful for | Limitations and next decision |
 | --- | --- | --- |
-| GeckoTerminal public API; CoinGecko Demo as a possible free-key alternative | Newly indexed Solana pools and their token addresses | Validate the keyless endpoint first. CoinGecko Demo requires its own key. Coverage is indexed pools, not every token launch. |
+| GeckoTerminal public API; CoinGecko Demo as a possible free-key alternative | Newly indexed Solana pools and their token addresses | Keyless adapter implemented and offline tested; live access still unverified. CoinGecko Demo requires its own key. Coverage is indexed pools, not every token launch. |
 | Existing DEX Screener adapter | Market cap estimate, selected-pool liquidity, rolling volume and pool age | Already returns manual snapshots; it cannot prove liquidity protection or developer behaviour. |
 | RugCheck public report and recently detected token endpoints | Candidate addresses and supporting risk observations | Inspect actual report schema, timestamps and evidence. A risk score or missing warning does not establish safety or absence of bundles. |
 | Solana public RPC | Current holdings of an identified wallet, transaction retrieval and on-chain state | Attribution and transaction classification require additional logic; public capacity and historical coverage are limited. |
@@ -35,7 +35,7 @@ Never replace a null market cap with FDV. Source the base mint explicitly;
 a pool address is not the CA, and quote-token metrics must not be assigned to
 the base token.
 
-Before enabling discovery, measure actual pool age/delay, pagination gaps,
+Before treating discovery as live-validated, measure actual pool age/delay, pagination gaps,
 coverage and response fields. Deduplicate by token and approved-rule revision.
 Record coverage interruptions and retain nonmatches with reasons. A fetch
 failure or truncated page must not become “no matches exist.” Bound the
@@ -90,6 +90,14 @@ inspectable live token payloads for the attempted public feed reads, and a
 report read failed. These observations are not successful API acceptance
 checks. Direct provider validation is still needed from a runtime with access.
 No synthetic response may stand in for that validation.
+
+The `codex/discovery-feed` stage implements the bounded keyless adapter,
+explicit scan activation, pause/resume/stop, persisted deduplication, alert
+history and on-demand source status. It passes 50 offline tests, including a
+synthetic feed-to-alert path. No real discovery alert or runtime feed payload
+has been verified yet. `/sources` performs the next live acceptance check
+without changing or activating the owner's blocked draft. The current full
+strategy still needs all of its strict risk checks before it can qualify.
 
 1. Validate one public feed and its real CA/pool/time fields; keep coverage
    visible and add a bounded candidate adapter.

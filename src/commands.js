@@ -3,10 +3,14 @@ import { createMarketData, isSolanaAddress, MarketDataError } from './market.js'
 import { formatTokenReport } from './token-report.js';
 import { createAgentSetup } from './agent-setup.js';
 import { formatRuleEvaluation } from './rules.js';
+import { createScanCommands, scanSummary } from './scan-commands.js';
 
-export function createResponder({ market = createMarketData(), agents } = {}) {
+export function createResponder({ market = createMarketData(), agents, feed } = {}) {
   const agentSetup = agents ? createAgentSetup(agents) : null;
+  const scanCommands = agents && feed ? createScanCommands({ agents, feed }) : null;
   return async (update, allowedUserIds, signal) => {
+    const scanReply = await scanCommands?.(update, allowedUserIds, signal);
+    if (scanReply) return scanReply;
     const agentReply = agentSetup?.(update, allowedUserIds);
     if (agentReply) return agentReply;
     const context = commandFor(update);
@@ -22,6 +26,11 @@ export function createResponder({ market = createMarketData(), agents } = {}) {
       if (agents) {
         const saved = agents.get(context.userId);
         response.text += `\n\nYour saved criteria: ${saved.approved ? 'approved' : 'none approved'}${saved.draft ? '; draft in progress' : ''}. Use /agent to review.`;
+        if (feed) {
+          response.text += '\n\n' + scanSummary(agents, context.userId);
+          const status = feed.status();
+          response.text += `\nCandidate feed: ${status.state === 'responded' ? 'last request succeeded' : status.state === 'unavailable' ? 'last request failed' : 'not checked this session'}. Use /sources to check access.`;
+        }
       }
       return response;
     }

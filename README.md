@@ -26,6 +26,11 @@ Sift is in private development for the existing @SiftAgentbot:
   draft. This does not interpret it or approve a partial strategy.
 - `/agent`: inspect the current draft or approved rules.
 - `/cancel`: discard the draft while keeping previously approved rules.
+- `/sources`: test the anonymous Solana candidate feed without activating a scan.
+- `/scan`: review coverage and approved rules, then explicitly start discovery.
+- `/pause`, `/resume`, `/stop`: control your discovery scan.
+- `/alerts`: inspect your latest five saved discovery reports and delivery states.
+- `/unmute <CA>`: undo a token mute.
 
 All nine offline tests passed locally and in the owner's Codespace.
 On 2026-10-11, owner-provided screenshots confirmed live `/id`,
@@ -58,7 +63,11 @@ grouped commas and optional MIN/MAX labels are now accepted and regression
 tested. The input fix, a complete approved-rule flow and persistence across a real
 restart still need live Telegram validation.
 
-Discovery, AI interpretation and monitoring remain unimplemented. The first
+The discovery engine now passes offline tests for supported market rules. Live
+feed access and a real qualifying alert are still unverified. AI interpretation,
+liquidity protection, wallet analysis, bundle checks and monitoring remain
+unimplemented. The owner’s full draft remains blocked because those required
+checks cannot yet be verified. The first
 welcome-response milestone and manual-check delivery path were verified by
 the owner; independent data accuracy still needs validation. The owner's
 [first discovery test case](docs/first-discovery-scenario.md) is recorded as
@@ -146,7 +155,8 @@ Example strategies will not become silent defaults.
 - [x] Durable criteria drafts and approved agent rules (local SQLite; offline tested).
 - [x] Guided setup and explicit rule approval (live mobile check pending).
 - [ ] Conversational setup and rule approval.
-- [ ] One complete discovery-to-alert flow.
+- [x] Bounded discovery engine, explicit activation and persisted alert history (offline tested).
+- [ ] One complete live discovery-to-alert flow with source evidence validation.
 - [ ] Follow-up monitoring and event classification.
 - [ ] Reliability testing and invited-user validation.
 
@@ -154,12 +164,13 @@ Each stage should report what works, what was tested,
 and what remains incomplete.
 
 Build order: validate one submitted CA; save and review measurable
-criteria; connect conversational interpretation; validate one discovery
-source and alert flow; then add follow-up monitoring with supported
-evidence. Hosting follows those core stages. Providers, AI usage and
+criteria; validate one discovery source and alert flow; add verified risk
+evidence, conversational interpretation and follow-up monitoring. Hosting
+follows those core stages. Providers, AI usage and
 any operating costs must be reviewed before paid services are introduced.
 The current external-service budget is $0. The [free-data integration plan](docs/free-data-plan.md)
-records sources to validate next; it does not claim that discovery is connected.
+records sources and remaining validation; the free discovery adapter still
+needs a successful live runtime check.
 
 ## Later possibilities
 
@@ -183,7 +194,9 @@ npm test
 ```
 
 Tests do not need credentials and do not contact Telegram.
-They also mock market-data responses and do not contact DEX Screener.
+They use synthetic feed/market fixtures and do not contact DEX Screener or
+GeckoTerminal. This branch passes 50 offline tests on Node.js 24.19.0.
+Use `node --test --test-isolation=none` to display individual test names.
 
 ### Connect the existing bot
 
@@ -216,8 +229,8 @@ have not yet been confirmed in live Telegram testing.
 - [ ] Group messages do not receive replies.
 - [x] `/help` lists the supported commands.
 - [x] The original `/status` truthfully identified the welcome-only stage.
-- [ ] Updated `/status` reports saved criteria and on-demand market checks;
-  discovery, AI and monitoring remain unavailable.
+- [ ] Updated `/status` reports saved criteria, source health and the user’s
+  actual scan state; AI, liquidity/wallet analysis and monitoring remain unavailable.
 - [ ] Graceful process shutdown and restart with unchanged configuration.
 
 ### Testing in GitHub Codespaces
@@ -240,13 +253,20 @@ This version uses long polling and replies only while its process is
 running. GitHub stores the code; it does not host this always-on process.
 Hosting selection and any spending are separate later decisions.
 
-There is no scanning job or alert history yet. Tester IDs are read from
+The discovery job runs alongside polling, only for allowed users with explicitly
+activated supported rules. An active scan resumes when the same database is
+reopened; `/pause` or `/stop` persists across restarts. Tester IDs are read from
 configuration at startup. Message bodies and bot tokens are not logged.
 Telegram still handles messages under its own service policies.
 
 Criteria are stored locally in `.sift/agents.sqlite`, keyed by Telegram user
 ID. Draft descriptions, approved rules, setup progress, undelivered setup
-replies and the acknowledged polling offset are persisted. `.sift/` is
+replies and the acknowledged polling offset are persisted. The same database
+now also stores scan state, token mutes, the latest evaluation per token/rule set,
+and saved alert reports with delivery outcomes. Failed/nonmatching checks are
+retained; repeated evaluations overwrite the previous evaluation for that
+token/rule set. This is not a complete time series. There is no automatic
+retention/deletion policy yet, so local storage grows during testing. `.sift/` is
 ignored by Git. The database is not encrypted; its directory and main file
 are created with restrictive permissions. Do not publish the database or
 its WAL/SHM files. It contains personal settings and Telegram IDs.
@@ -297,8 +317,8 @@ an API source link identifies the response used.
 Liquidity locks, holder count/concentration, wallet coordination, bundles,
 deployer attribution, developer sales/transfers and token permissions remain
 unknown/unsupported. A user's approved market rules are evaluated below the
-snapshot if present; drafts are never applied. No discovery alert is sent and
-no safety score is invented.
+snapshot if present; drafts are never applied. `/check` itself does not send a
+background discovery alert and no safety score is invented.
 An empty or unsupported response means coverage is unknown, not that the
 token cannot exist. A provider error produces an unavailable-data reply.
 
@@ -331,8 +351,8 @@ Reference: [DEX Screener API](https://docs.dexscreener.com/api/reference).
 The goal remains automatic personalised discovery: find tokens matching a
 user's approved instructions and send CAs with evidence. This stage supplies
 the saved rules and deterministic checks needed by that scanner. Approving
-rules currently saves them for manual `/check` evaluation only. It does not
-activate a scan or send background alerts.
+rules saves them for manual `/check` evaluation and a separate `/scan` review.
+Approval alone does not activate a scan or send background alerts.
 
 Run `/setup` in a private chat as an allowed tester. Choose a name, then enter
 user-selected conditions for:
@@ -369,11 +389,12 @@ button to approve only the convenient subset of such a draft. To intentionally
 replace a draft, discard it with `/cancel` and start again.
 
 An edit creates a draft; previously approved rules remain in effect for manual
-checks until the replacement is approved. Replies identify unapplied drafts.
+checks and any already-running scan until the replacement is approved. Approval
+of changed rules pauses an active scan; use `/scan` to review and start again.
+A draft blocks new activation/resume. Replies identify unapplied drafts.
 Buttons are tied to the owner's private chat and the current draft revision.
-Other users and old buttons cannot approve a change. This release has no
-active scanner to pause/resume/stop; those controls belong to the discovery
-stage. Saved local state is per user; source health is shared and contains no
+Other users and old buttons cannot approve a change. Saved local state is
+per user; source health is shared and contains no
 submitted CAs or user instructions.
 
 ### Criteria acceptance still required
@@ -389,6 +410,80 @@ submitted CAs or user instructions.
 - [ ] Edit and cancel; confirm the previous approved rules remain unchanged.
 - [ ] Stop and restart the same Codespace; `/agent` should retain settings.
 - [ ] Check a second tester cannot view or change the first user's settings.
+
+## Discovery stage: live validation pending
+
+This branch adds an anonymous GeckoTerminal new-pools feed and a background
+scanner. It uses the same DEX Screener adapter and approved measurable rules
+as `/check`. It introduces no API key, paid subscription, AI usage or hosting.
+Codespaces still uses the owner's existing compute/storage allowance.
+
+`/sources` is the first live test. It fetches candidate metadata and reports
+counts, retrieval time, cache status and source coverage. It does not interpret
+or approve criteria, start discovery, or change a saved draft. A successful
+response only verifies feed access and parsing, not evidence accuracy.
+
+For an agent that already has approved supported market rules, `/scan` shows
+the rules and limitations before **Start discovery**. Unknown required values
+do not qualify. Additional lock, developer or bundle requirements remain
+unresolved and block activation; this stage cannot produce qualifying alerts
+for the owner's full strategy. Do not remove those requirements just to test
+this stage. Synthetic tests exercise the matching path without changing them.
+
+Coverage and resource limits:
+
+- GeckoTerminal's first Solana new-pools page supplies base-token CAs. Only up
+  to 20 distinct candidates from that page are checked each cycle. There is
+  no pagination, full-launch coverage or catch-up after downtime.
+- DEX Screener independently selects the pool whose metrics are checked. It
+  may differ from the pool that appeared in the candidate feed. Quote-only
+  tokens and unindexed pools/venues may be missed. Provider update time is
+  unknown; retrieval time is not a freshness guarantee.
+- Cycles begin roughly once a minute while the process runs; slow provider
+  calls extend this interval. Market requests share `/check`'s three-second
+  cooldown. The feed is fetched at most once a minute, may be cached for less
+  than a minute, and respects provider rate limits. Failed refreshes discard
+  old cached success. There is no paid fallback.
+- At most three new discovery alerts are attempted per user per cycle. Extra
+  matches are counted as suppressed and may be delayed or missed. These fixed
+  private-test limits are not trading thresholds. Configurable limits, quiet
+  hours and grouped updates remain unimplemented.
+- `/scan` and `/status` show completed cycle time, checked/matching/suppressed
+  counts and service issues. Failed source requests do not become “no matches
+  exist.” Source interruptions are visible on demand; push outage notifications
+  are not implemented yet.
+
+Alert reports contain the full CA, selected pool and metrics, required/warning
+results, unknown checks, retrieval times and fixed-provider evidence/chart
+links. Buttons dismiss a report or mute that token for the user. Monitoring
+is unavailable, so there is no Monitor button yet. `/alerts` shows the last
+five saved reports with delivery states; viewing one labels it as historical.
+
+There is at most one **automatic delivery attempt** for each user, token and
+unchanged set of rules. Its report is saved before sending. An uncertain send
+or crash leaves a recoverable report, not a blind automatic retry: `/alerts`
+can retrieve it. Failed sends are also retained and not automatically retried.
+This limits duplicate alerts but can miss delivery; it is not exactly-once or
+guaranteed delivery. `/status` counts failed/uncertain records. Renaming or
+reapproving identical rules, restarting, or unmuting does not repeat an old
+attempt. Different approved rules can produce a new report. Requalification
+or later meaningful-change alerts are not implemented yet.
+
+### Discovery acceptance still required
+
+- [ ] `/sources` returns real Solana base-token candidates in Codespaces;
+  inspect CA/pool identities and compare provider retrieval times.
+- [ ] The existing full draft survives the update and `/scan` stays blocked.
+- [ ] With a separately approved supported test configuration, validate one
+  real qualifying alert against its evidence without relaxing thresholds to
+  manufacture a match.
+- [ ] Pause/resume/stop, mute, history and restart behavior work on mobile.
+- [ ] Observe delivery delay, coverage gaps and source failures during testing.
+
+Offline tests cover the complete synthetic adapter-to-rule-to-alert path,
+unknown strict metrics, candidate/alert limits, owner isolation, stale buttons,
+rule changes and pauses during requests, provider errors, Telegram 429/403,
+uncertain delivery and restart recovery. These are not live market findings.
 
 ## Product boundaries
 
