@@ -50,11 +50,13 @@ command/data tests). It saves drafts, approved rules and acknowledged update
 offsets in local SQLite. Automated checks cover user isolation, restart
 recovery, approval, unresolved requirements, unknown data and delivery retries.
 Owner screenshots confirm that the original 33 tests passed in Codespaces,
-the bot started, and live guided setup reached the market-cap question.
+the bot started, and live guided setup reached draft review with all four
+numeric rules and the extra instructions retained. Approval was correctly
+blocked for unresolved requirements.
 Those screenshots exposed a confusing input prompt; USD signs, correctly
 grouped commas and optional MIN/MAX labels are now accepted and regression
-tested. The input fix and the complete setup/approval flow still need live
-Telegram validation.
+tested. The input fix, a complete approved-rule flow and persistence across a real
+restart still need live Telegram validation.
 
 Discovery, AI interpretation and monitoring remain unimplemented. The first
 welcome-response milestone and manual-check delivery path were verified by
@@ -156,6 +158,8 @@ criteria; connect conversational interpretation; validate one discovery
 source and alert flow; then add follow-up monitoring with supported
 evidence. Hosting follows those core stages. Providers, AI usage and
 any operating costs must be reviewed before paid services are introduced.
+The current external-service budget is $0. The [free-data integration plan](docs/free-data-plan.md)
+records sources to validate next; it does not claim that discovery is connected.
 
 ## Later possibilities
 
@@ -377,8 +381,9 @@ submitted CAs or user instructions.
 - [x] Begin guided setup on mobile and reach the market-cap question.
 - [ ] Verify the corrected currency/label input in live Telegram.
 - [ ] Complete guided setup on mobile; verify each threshold and mode in review.
-- [ ] Try an unresolved lock/developer/bundle requirement; confirm no approval
-  button appears and no partial strategy is applied.
+- [x] Retain unresolved lock/developer/bundle requirements at draft review;
+  confirm no approval button appears and the blocked state is explained.
+- [ ] Confirm a manual check does not apply that unresolved draft.
 - [ ] Approve a market-only test rule, then `/check` a CA and compare the rule
   result with the reported metric. This is a test, not a recommended strategy.
 - [ ] Edit and cancel; confirm the previous approved rules remain unchanged.
