@@ -21,6 +21,11 @@ Sift is in private development for the existing @SiftAgentbot:
 - `/id`: shows the sender their own Telegram user ID in a private chat.
 - `/check <CA>`: a manual Solana market snapshot from DEX Screener for
   approved testers. Missing metrics and unsupported checks stay unknown.
+- `/setup`: guided criteria, review and explicit approval.
+- `/setup <description>`: retain a natural-language request as an unresolved
+  draft. This does not interpret it or approve a partial strategy.
+- `/agent`: inspect the current draft or approved rules.
+- `/cancel`: discard the draft while keeping previously approved rules.
 
 All nine offline tests passed locally and in the owner's Codespace.
 On 2026-10-11, owner-provided screenshots confirmed live `/id`,
@@ -40,10 +45,24 @@ also returned usage guidance. These observations verify the command and
 data-delivery path; the reported metrics have not been independently
 reconciled with the source. No mock metrics are used by the running bot.
 
-Discovery, AI interpretation, monitoring, and durable user/agent state
-remain unimplemented. The first welcome-response milestone is verified;
-the manual-check delivery path is verified by the owner; independent data
-accuracy and the remaining access/failure checks below still need validation.
+The criteria foundation passes 35 offline tests (including the 20 existing
+command/data tests). It saves drafts, approved rules and acknowledged update
+offsets in local SQLite. Automated checks cover user isolation, restart
+recovery, approval, unresolved requirements, unknown data and delivery retries.
+Owner screenshots confirm that the original 33 tests passed in Codespaces,
+the bot started, and live guided setup reached draft review with all four
+numeric rules and the extra instructions retained. Approval was correctly
+blocked for unresolved requirements.
+Those screenshots exposed a confusing input prompt; USD signs, correctly
+grouped commas and optional MIN/MAX labels are now accepted and regression
+tested. The input fix, a complete approved-rule flow and persistence across a real
+restart still need live Telegram validation.
+
+Discovery, AI interpretation and monitoring remain unimplemented. The first
+welcome-response milestone and manual-check delivery path were verified by
+the owner; independent data accuracy still needs validation. The owner's
+[first discovery test case](docs/first-discovery-scenario.md) is recorded as
+product intent, with unavailable evidence explicitly blocking qualification.
 
 ## How Sift will work
 
@@ -124,7 +143,8 @@ Example strategies will not become silent defaults.
 - [x] Basic Telegram response and configured private tester access.
 - [x] Manual Solana market-data adapter, private command and offline tests.
 - [ ] Live token-data checks and evidence validation.
-- [ ] Durable user settings and agent state.
+- [x] Durable criteria drafts and approved agent rules (local SQLite; offline tested).
+- [x] Guided setup and explicit rule approval (live mobile check pending).
 - [ ] Conversational setup and rule approval.
 - [ ] One complete discovery-to-alert flow.
 - [ ] Follow-up monitoring and event classification.
@@ -138,6 +158,8 @@ criteria; connect conversational interpretation; validate one discovery
 source and alert flow; then add follow-up monitoring with supported
 evidence. Hosting follows those core stages. Providers, AI usage and
 any operating costs must be reviewed before paid services are introduced.
+The current external-service budget is $0. The [free-data integration plan](docs/free-data-plan.md)
+records sources to validate next; it does not claim that discovery is connected.
 
 ## Later possibilities
 
@@ -151,7 +173,7 @@ any operating costs must be reviewed before paid services are introduced.
 
 ## Development setup
 
-This first milestone uses Node.js 24 LTS and its built-in HTTP and
+This version uses Node.js 24 LTS and its built-in HTTP, SQLite and
 test APIs. There are no third-party packages to install.
 
 ### Local checks
@@ -193,7 +215,9 @@ have not yet been confirmed in live Telegram testing.
   retrieve its own ID.
 - [ ] Group messages do not receive replies.
 - [x] `/help` lists the supported commands.
-- [x] `/status` says that discovery, AI, data, and monitoring are not connected.
+- [x] The original `/status` truthfully identified the welcome-only stage.
+- [ ] Updated `/status` reports saved criteria and on-demand market checks;
+  discovery, AI and monitoring remain unavailable.
 - [ ] Graceful process shutdown and restart with unchanged configuration.
 
 ### Testing in GitHub Codespaces
@@ -216,16 +240,29 @@ This version uses long polling and replies only while its process is
 running. GitHub stores the code; it does not host this always-on process.
 Hosting selection and any spending are separate later decisions.
 
-There is no database, scanning job, saved strategy, or alert history.
-Tester IDs are read from configuration at startup. Message bodies and
-bot tokens are not logged by this application. Telegram still handles
-messages under its own service policies.
+There is no scanning job or alert history yet. Tester IDs are read from
+configuration at startup. Message bodies and bot tokens are not logged.
+Telegram still handles messages under its own service policies.
 
-Update offsets are held in memory. A restart or an uncertain network
-delivery can repeat a reply or re-fetch a manual check. Persistent processing and delivery
-records are required before adding discovery or monitoring alerts.
-Telegram may retain pending updates for up to 24 hours; earlier
-messages can be processed on first startup.
+Criteria are stored locally in `.sift/agents.sqlite`, keyed by Telegram user
+ID. Draft descriptions, approved rules, setup progress, undelivered setup
+replies and the acknowledged polling offset are persisted. `.sift/` is
+ignored by Git. The database is not encrypted; its directory and main file
+are created with restrictive permissions. Do not publish the database or
+its WAL/SHM files. It contains personal settings and Telegram IDs.
+
+Agent mutations and their reply are recorded in one transaction. A delivery
+retry returns the recorded setup response without advancing the wizard twice.
+The offset advances only after delivery (or a terminal Telegram 403); setup
+reply receipts are then pruned. A crash after Telegram accepted a message but
+before local acknowledgement can still duplicate a reply. This is not
+exactly-once delivery. Manual checks may be fetched again after a failed send.
+
+Stopping and reopening the same Codespace preserves its files. Deleting the
+Codespace or `.sift/` loses local settings; GitHub does not back them up.
+Continuous hosting will need durable storage and a separate backup plan.
+An unreadable or invalid agent database stops the bot rather than replacing
+settings. Telegram may retain pending updates for up to 24 hours.
 
 Credentials must remain outside source control, chat, and logs.
 
@@ -257,9 +294,11 @@ Pool creation age is labelled separately from unknown token creation and
 trading start. Chart links use the validated pool address on DEX Screener;
 an API source link identifies the response used.
 
-Holder count/concentration, bundles, deployer attribution, developer
-sales/transfers and token permissions remain unknown/unsupported.
-No strategy is applied, no match alert is sent, and no safety score is invented.
+Liquidity locks, holder count/concentration, wallet coordination, bundles,
+deployer attribution, developer sales/transfers and token permissions remain
+unknown/unsupported. A user's approved market rules are evaluated below the
+snapshot if present; drafts are never applied. No discovery alert is sent and
+no safety score is invented.
 An empty or unsupported response means coverage is unknown, not that the
 token cannot exist. A provider error produces an unavailable-data reply.
 
@@ -286,6 +325,70 @@ The temporary health/cooldown state resets when the bot restarts.
 - [ ] Check source outage/rate-limit behaviour during a controlled test.
 
 Reference: [DEX Screener API](https://docs.dexscreener.com/api/reference).
+
+## Criteria setup stage
+
+The goal remains automatic personalised discovery: find tokens matching a
+user's approved instructions and send CAs with evidence. This stage supplies
+the saved rules and deterministic checks needed by that scanner. Approving
+rules currently saves them for manual `/check` evaluation only. It does not
+activate a scan or send background alerts.
+
+Run `/setup` in a private chat as an allowed tester. Choose a name, then enter
+user-selected conditions for:
+
+1. Market-cap range in USD, explicitly a provider estimate (never FDV).
+2. Minimum USD liquidity in the selected pool (not proof of a lock).
+3. Minimum selected-pool volume over the provider's rolling 1h window.
+4. Maximum selected-pool age in minutes (not token age or trading start).
+5. Any additional requirements or warnings that must not be omitted.
+
+For market cap, send `require` or `warn` followed by your two amounts,
+minimum first. Format examples: `require 20k 60k`, `require $20,000 $60,000`,
+or `require MIN $20,000 MAX $60,000`. Replace the example amounts with your
+own values. These examples are not default strategies.
+
+For the other numeric conditions, send `require` or `warn` followed by your
+chosen amount. USD amounts accept a dollar sign, correctly grouped commas,
+and `k`/`m` suffixes. Pool age takes plain minutes, not currency or suffixes.
+The mode must be explicit: a bare range is not silently treated as required
+or warning-only. Use Skip for an unwanted numeric condition. No thresholds
+are preselected.
+At the final question, send extra instructions or explicitly send `none`.
+Then review the exact rules and press **Approve rules**. At least one strict
+condition is necessary; empty and warning-only strategies cannot be approved.
+Unknown strict results prevent qualification. Unknown or failing warning-only
+checks remain visible without independently excluding a token.
+
+Natural-language AI is not connected. `/setup <description>` saves the exact
+request as an unresolved draft without extracting or inventing thresholds.
+Any additional instructions also remain unresolved and block approval until
+supported interpretation and evidence exist. Editing numeric rules or replying
+`none` does not clear previously saved unresolved instructions. There is no
+button to approve only the convenient subset of such a draft. To intentionally
+replace a draft, discard it with `/cancel` and start again.
+
+An edit creates a draft; previously approved rules remain in effect for manual
+checks until the replacement is approved. Replies identify unapplied drafts.
+Buttons are tied to the owner's private chat and the current draft revision.
+Other users and old buttons cannot approve a change. This release has no
+active scanner to pause/resume/stop; those controls belong to the discovery
+stage. Saved local state is per user; source health is shared and contains no
+submitted CAs or user instructions.
+
+### Criteria acceptance still required
+
+- [x] Begin guided setup on mobile and reach the market-cap question.
+- [ ] Verify the corrected currency/label input in live Telegram.
+- [ ] Complete guided setup on mobile; verify each threshold and mode in review.
+- [x] Retain unresolved lock/developer/bundle requirements at draft review;
+  confirm no approval button appears and the blocked state is explained.
+- [ ] Confirm a manual check does not apply that unresolved draft.
+- [ ] Approve a market-only test rule, then `/check` a CA and compare the rule
+  result with the reported metric. This is a test, not a recommended strategy.
+- [ ] Edit and cancel; confirm the previous approved rules remain unchanged.
+- [ ] Stop and restart the same Codespace; `/agent` should retain settings.
+- [ ] Check a second tester cannot view or change the first user's settings.
 
 ## Product boundaries
 

@@ -17,7 +17,7 @@ const age = (createdAt, fetchedAt) => {
 };
 const WINDOW_NAMES = { m5: '5m', h1: '1h', h24: '24h' };
 
-export function formatTokenReport(snapshot) {
+export function formatTokenReport(snapshot, { hasApprovedRules = false } = {}) {
   const header = `Sift · Solana token check\nCA: ${snapshot.address}`;
   const freshness = `Fetched: ${utc(snapshot.fetchedAt)}\nData: DEX Screener API response; no Sift cache.\nProvider update time: unknown. Data may be delayed.`;
   const pair = snapshot.selected;
@@ -42,9 +42,9 @@ export function formatTokenReport(snapshot) {
     `Selected pool activity; provider rolling windows\n${windows}`,
     'Coverage: DEX Screener-indexed pools with this CA as base token; one pool shown. New or unindexed venues may be missing.',
     `Pool age (provider creation time): ${age(pair.createdAt, snapshot.fetchedAt)}\nToken creation / trading start: unknown.`,
-    'Unknown / unsupported: holder count, holder concentration, bundles, deployer identity, developer sales/transfers, token permissions.',
+    'Unknown / unsupported: liquidity locks, holder count, holder concentration, coordinated wallets, bundles, deployer identity, developer sales/transfers, token permissions.',
     freshness,
     `Chart / pool evidence: https://dexscreener.com/solana/${pair.address}\nAPI source: ${snapshot.sourceUrl}`,
-    'Manual market snapshot. No strategy has been applied; this is not a match alert or a safety assessment.',
+    hasApprovedRules ? 'Manual market snapshot; your approved-rule assessment follows. This is not a discovery alert or a safety assessment.' : 'Manual market snapshot. No strategy has been applied; this is not a match alert or a safety assessment.',
   ].join('\n\n');
 }
