@@ -3,6 +3,7 @@ import { mkdirSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateRules, assertApprovable } from './rules.js';
 import { DISCOVERY_SCHEMA, discoveryStore } from './discovery-store.js';
+import { WATCH_SCHEMA, watchStore } from './watch-store.js';
 
 export class AgentStoreError extends Error {
   constructor() { super('Saved agent data could not be accessed. Sift stopped to preserve existing settings.'); }
@@ -49,6 +50,7 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
       INSERT OR IGNORE INTO runtime VALUES ('offset', 0);
     `);
     db.exec(DISCOVERY_SCHEMA);
+    db.exec(WATCH_SCHEMA);
   } catch { try { db?.close(); } catch {} throw new AgentStoreError(); }
   const safe = (fn) => (...args) => {
     try { return fn(...args); } catch (error) {
@@ -62,6 +64,7 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
   };
   return {
     ...discoveryStore(db, safe),
+    ...watchStore(db, safe),
     get: safe((id) => {
       const row = db.prepare('SELECT * FROM agents WHERE user_id = ?').get(userId(id));
       if (!row) return { revision: 0, draft: null, approved: null };
@@ -81,6 +84,10 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
     }),
     // Agent mutations and their reply are committed together. Retrying an
     // update after a failed Telegram send must not advance the wizard twice.
+    receipt: safe((updateId) => {
+      const row = db.prepare('SELECT response FROM agent_receipts WHERE update_id=?').get(updateId);
+      return row ? JSON.parse(row.response) : null;
+    }),
     process: safe((updateId, action) => {
       if (!Number.isSafeInteger(updateId + 1) || updateId < 0) throw new AgentStoreError();
       db.exec('BEGIN IMMEDIATE');

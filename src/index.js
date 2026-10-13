@@ -6,6 +6,7 @@ import { runPolling } from './polling.js';
 import { createMarketData } from './market.js';
 import { createDiscoveryFeed } from './discovery-feed.js';
 import { createDiscoveryRunner } from './discovery.js';
+import { createWatchRunner } from './watch.js';
 
 const shutdown = new AbortController();
 for (const event of ['SIGINT', 'SIGTERM']) {
@@ -25,10 +26,11 @@ async function main() {
   const feed = createDiscoveryFeed();
   const respond = createResponder({ agents, market, feed });
   const discovery = createDiscoveryRunner({ agents, market, feed, call, allowedUserIds });
+  const monitoring = createWatchRunner({ agents, market, call, allowedUserIds });
   console.log('Sift private test bot is running. Discovery requires approved supported rules and explicit activation.');
   if (allowedUserIds.size === 0) console.log('No testers configured. Only /id lookup is available.');
 
-  const tasks = [runPolling({ call, respond, agents, allowedUserIds, signal }), discovery.run({ signal })];
+  const tasks = [runPolling({ call, respond, agents, allowedUserIds, signal }), discovery.run({ signal, beforeCycle: monitoring.cycle })];
   try { await Promise.all(tasks); }
   finally {
     runtimeStop.abort();

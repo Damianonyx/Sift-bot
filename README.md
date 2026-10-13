@@ -30,7 +30,11 @@ Sift is in private development for the existing @SiftAgentbot:
 - `/liquidity <CA>`: read the selected pool’s on-chain liquidity accounts where
   supported. Protection remains unknown; this is not yet a lock verifier.
 - `/scan`: review coverage and approved rules, then explicitly start discovery.
-- `/pause`, `/resume`, `/stop`: control your discovery scan.
+- `/watch <CA> <DROP_PERCENT> <HOURS>`: review and start a fixed-pool market monitor.
+- `/watchlist`: view, pause, resume, stop or extend monitors.
+- `/watchalerts`: saved monitoring reports and delivery outcomes.
+- `/pause` and `/stop`: control discovery and all your market monitors.
+- `/resume`: resume discovery; use `/watchlist` to resume individual monitors.
 - `/alerts`: inspect your latest five saved discovery reports and delivery states.
 - `/unmute <CA>`: undo a token mute.
 
@@ -69,8 +73,9 @@ The discovery engine now passes offline tests for supported market rules. On 202
 Solana candidates from 20 pools with zero invalid rows, and `/scan` detected
 the unapproved draft with discovery stopped. A real qualifying alert and
 independent candidate/evidence accuracy are still unverified. AI interpretation,
-liquidity protection, wallet analysis, bundle checks and monitoring remain
-unimplemented. The owner’s full draft remains blocked because those required
+liquidity protection, wallet analysis and bundle checks remain
+unimplemented. Fixed-pool market monitoring is now implemented and offline tested;
+live monitoring acceptance is pending. The owner’s full draft remains blocked because those required
 checks cannot yet be verified. The first
 welcome-response milestone and manual-check delivery path were verified by
 the owner; independent data accuracy still needs validation. The owner's
@@ -161,7 +166,8 @@ Example strategies will not become silent defaults.
 - [ ] Conversational setup and rule approval.
 - [x] Bounded discovery engine, explicit activation and persisted alert history (offline tested).
 - [ ] One complete live discovery-to-alert flow with source evidence validation.
-- [ ] Follow-up monitoring and event classification.
+- [x] Fixed-pool market monitoring (offline tested; live validation pending).
+- [ ] Verified developer event classification and liquidity-protection monitoring.
 - [ ] Reliability testing and invited-user validation.
 
 Each stage should report what works, what was tested,
@@ -169,7 +175,7 @@ and what remains incomplete.
 
 Build order: validate one submitted CA; save and review measurable
 criteria; validate one discovery source and alert flow; add verified risk
-evidence, conversational interpretation and follow-up monitoring. Hosting
+evidence, conversational interpretation and live monitoring validation. Hosting
 follows those core stages. Providers, AI usage and
 any operating costs must be reviewed before paid services are introduced.
 The current external-service budget is $0. The [free-data integration plan](docs/free-data-plan.md)
@@ -199,8 +205,8 @@ npm test
 
 Tests do not need credentials and do not contact Telegram.
 They use synthetic feed/market fixtures and do not contact DEX Screener or
-GeckoTerminal. This branch passes 76 offline tests on Node.js 24.19.0, including the new
-manual liquidity account reader.
+GeckoTerminal. This branch passes 97 offline tests on Node.js 24.19.0, including the
+liquidity account reader and fixed-pool monitoring.
 Use `node --test --test-isolation=none` to display individual test names.
 
 ### Connect the existing bot
@@ -235,7 +241,7 @@ have not yet been confirmed in live Telegram testing.
 - [x] `/help` lists the supported commands.
 - [x] The original `/status` truthfully identified the welcome-only stage.
 - [ ] Updated `/status` reports saved criteria, source health and the user’s
-  actual scan state; AI, liquidity/wallet analysis and monitoring remain unavailable.
+  actual scan and market-monitor state; AI, liquidity protection and wallet analysis remain unavailable.
 - [ ] Graceful process shutdown and restart with unchanged configuration.
 
 ### Testing in GitHub Codespaces
@@ -460,8 +466,9 @@ Coverage and resource limits:
 
 Alert reports contain the full CA, selected pool and metrics, required/warning
 results, unknown checks, retrieval times and fixed-provider evidence/chart
-links. Buttons dismiss a report or mute that token for the user. Monitoring
-is unavailable, so there is no Monitor button yet. `/alerts` shows the last
+links. Buttons dismiss a report, mute that token, or open market-monitor setup.
+The Monitor button asks for a drop percentage and duration, then requires review
+and a fresh baseline before activation; it does not monitor wallets or locks. `/alerts` shows the last
 five saved reports with delivery states; viewing one labels it as historical.
 
 There is at most one **automatic delivery attempt** for each user, token and
@@ -513,6 +520,70 @@ still needs a live retest and independent evidence comparison. Synthetic tests c
 account mismatches, missing/stale data, RPC failure, access controls and the
 unchanged draft/scan state. `/sources` link previews are also disabled to keep
 JSON download previews out of the mobile chat.
+
+## Market monitoring stage (offline tested; live acceptance pending)
+
+Use `/watch <CA> <DROP_PERCENT> <HOURS>`, then **Start market monitoring** after
+reviewing the exact scope. For example, `/watch <CA> 20 24` asks for a 20% fall
+from starting USD liquidity over 24 hours. Replace the placeholder with a real
+Solana CA and choose your own values; no threshold is preselected. Duration is
+1–168 whole hours; drop percentage must be greater than 0 and at most 100.
+The review expires after ten minutes and makes no provider request until Start.
+
+At activation the existing DEX Screener adapter selects a pool by highest known
+reported USD liquidity. A known positive baseline from a response retrieved
+within two minutes is required. The pool address and baseline stay fixed. Future
+checks pin that exact pool even if another becomes larger. A missing pool or
+liquidity reading is unknown; it cannot become a zero or a replacement pool.
+Provider update time remains unknown: recent API retrieval does not prove the
+underlying market measurements are current.
+
+The monitor captures the user's already-approved market rules at review. It
+shows their state at the baseline and reports failed or unknown conditions on
+subsequent checks. Later edits to the discovery agent do not silently change
+existing monitors. A monitor without approved market rules only checks its
+explicit liquidity-drop threshold. Neither setup nor activation changes a
+saved discovery draft, approves unresolved requirements, or produces a match
+against the full locked-liquidity/developer/bundle strategy.
+
+`/watchlist` opens owner-only controls to pause/resume, stop or extend by 24
+hours (maximum total duration seven days). Pausing does not extend the original
+end time. `/pause` and `/stop` now also pause or stop all of that user's monitors.
+`/resume` resumes discovery only; individual monitors resume from `/watchlist`.
+A request already being delivered may arrive after a pause or stop.
+
+The same SQLite database preserves monitors, their captured rules, baseline,
+latest observation, and event reports. Successful, failed, uncertain and
+suppressed delivery records are retained. An event is saved before its one
+automatic delivery attempt, preventing blind retries after a crash. A crash
+between an expiry update and its notification can lose the notification;
+`/watchlist` still shows the end time and expired state. `/watchalerts` displays
+the latest five saved reports. No full observation time series, deletion policy
+or exactly-once delivery is implemented yet.
+
+Current private-test resource limits:
+
+- Three open monitors per user, twenty across the process, one open monitor per
+  user/token. Reviews count toward capacity until they expire or are cancelled.
+- Monitoring runs before discovery in the shared roughly one-minute cycle.
+  Provider cooldowns, in-flight requests, slow delivery and discovery checks can
+  extend the interval. Identical token/pool watches share one response within a
+  cycle; there is no cross-cycle market cache or downtime catch-up.
+- Three monitoring delivery attempts per user per cycle. Excess reports are
+  saved as suppressed. This is separate from the three discovery-alert limit.
+- Each condition (liquidity drop, each failed/unknown rule, interruption,
+  recovery, gap and end) gets at most one report per monitor. Repeated occurrences
+  are not re-alerted. Current availability and late checks remain visible in
+  `/watchlist`; failed/suppressed delivery is also counted in `/status`.
+- Alerts describe **USD liquidity changes**, which can reflect prices or pool
+  balances. They do not claim a withdrawal, broken lock, developer sale or
+  transfer. Those require evidence not connected in this stage.
+
+No new paid service, API key or package dependency is added. This development
+workspace cannot reach the provider proxy, and no Telegram credential is
+configured here. The 97 passing tests use synthetic data; a real Telegram
+monitoring alert is not yet verified. See the [private testing plan](docs/private-testing.md)
+for the owner checks and the planned one-week invitation stage.
 
 ## Product boundaries
 
