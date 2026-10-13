@@ -1,0 +1,12 @@
+$schema: https://api.gitbook.com/gitbook-docs.yaml
+site:
+  title: Sift Documentation
+  structure:
+    - type: space
+      key: sift-docs
+      title: Sift
+      path: docs
+      default: true
+      content:
+        directory: ./gitbook
+        language: en
