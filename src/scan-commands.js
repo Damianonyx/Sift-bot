@@ -84,7 +84,7 @@ export function createScanCommands({ agents, feed }) {
         saved.approved ? `Approved rules · ${saved.approved.name}\n${saved.approved.rules.map(describeRule).join('\n')}` : '',
         DISCOVERY_COVERAGE,
         `Private test limits: roughly one cycle/minute, up to ${ALERT_LIMIT} new alerts per cycle per user. Extra matches may be delayed or missed; /scan shows suppression. Quiet hours are not implemented.`,
-        'Only approved supported rules are applied. Liquidity protection, developer activity, bundles and monitoring are unavailable. Unknown required metrics cannot pass. An unapproved edit does not change a running scan’s previously approved rules.',
+        'Only approved supported rules are applied. Liquidity protection, developer activity and bundles are unavailable. Market monitoring is separate: use /watch. Unknown required metrics cannot pass. An unapproved edit does not change a running scan’s previously approved rules.',
       ].filter(Boolean).join('\n\n'), !reason && scan.state !== 'active' ? [[button('Start discovery', id, 'start', saved.revision)]] : undefined);
     }
     if (['pause', 'resume', 'stop', 'unmute'].includes(command)) {
@@ -104,8 +104,9 @@ export function createScanCommands({ agents, feed }) {
           return reply('Discovery resumed. Use /scan for status or /pause to pause again.');
         }
         agents.discoverySet(id, command === 'pause' ? 'paused' : 'stopped', scan.criteria_key);
-        return reply(command === 'pause' ? 'Discovery paused. Use /resume when ready. An alert already being sent may still arrive.' :
-          'Discovery stopped. Your criteria and alert history remain saved. Use /scan to review before starting again. An alert already being sent may still arrive.');
+        agents.watchAllControl(id, command);
+        return reply(command === 'pause' ? 'Discovery paused. Market monitors also paused; their end times are unchanged. Use /resume for discovery and /watchlist to resume individual monitors. An alert already being sent may still arrive.' :
+          'Discovery stopped. Market monitors also stopped. Your criteria and report history remain saved. Use /scan or /watch to review before starting again. An alert already being sent may still arrive.');
       });
     }
     if (command === 'alerts') {

@@ -17,7 +17,7 @@ export function formatDiscoveryAlert(agent, snapshot, feed) {
     formatTokenReport(snapshot, { hasApprovedRules: true, discovery: true }),
     formatRuleEvaluation(agent, snapshot, { discovery: true }),
     `Candidate source: ${feed.sourceUrl}\nFeed fetched: ${new Date(feed.fetchedAt).toISOString()}${feed.cached ? ' (Sift feed cache)' : ''}`,
-    'Only your approved checks determined this match. Liquidity protection, wallet activity and bundles remain unsupported. Follow-up monitoring is not connected.',
+    'Only your approved checks determined this match. Liquidity protection, wallet activity and bundles remain unsupported. Use Monitor to set up market monitoring.',
   ].join('\n\n');
 }
 
@@ -97,7 +97,7 @@ export function createDiscoveryRunner({ feed, market, agents, call, allowedUserI
         stat.sent++;
         try {
           await call('sendMessage', { chat_id: id, text, link_preview_options: { is_disabled: true },
-            reply_markup: { inline_keyboard: [[
+            reply_markup: { inline_keyboard: [[{ text: 'Monitor', callback_data: `watch:${id}:prompt:${eventId}:0` }], [
               { text: 'Dismiss', callback_data: `scan:${id}:dismiss:${eventId}` },
               { text: 'Mute token', callback_data: `scan:${id}:mute:${eventId}` },
             ]] } }, signal);
@@ -119,9 +119,10 @@ export function createDiscoveryRunner({ feed, market, agents, call, allowedUserI
 
   return {
     cycle,
-    async run({ signal }) {
+    async run({ signal, beforeCycle }) {
       while (!signal.aborted) {
         const startedAt = now();
+        await beforeCycle?.({ signal });
         await cycle({ signal });
         if (!signal.aborted) await wait(Math.max(1000, SCAN_INTERVAL_MS - (now() - startedAt)), undefined, { signal });
       }

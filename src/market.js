@@ -32,7 +32,7 @@ function price(value) {
   return metric(Number(value));
 }
 
-export function normalisePairs(raw, address, fetchedAt) {
+export function normalisePairs(raw, address, fetchedAt, poolAddress = null) {
   if (!Array.isArray(raw)) throw new MarketDataError('INVALID_RESPONSE');
   const seen = new Set();
   const pairs = [];
@@ -61,8 +61,8 @@ export function normalisePairs(raw, address, fetchedAt) {
   return {
     address, fetchedAt, sourceUrl: sourceUrl(address), poolCount: pairs.length,
     unknownLiquidityCount: pairs.filter((pair) => pair.liquidityUsd === null).length,
-    selected: ranked[0] ?? pairs[0] ?? null,
-    selection: ranked.length ? 'reported_liquidity' : 'first_supported',
+    selected: poolAddress ? pairs.find((pair) => pair.address === poolAddress) ?? null : ranked[0] ?? pairs[0] ?? null,
+    selection: poolAddress ? 'pinned_pool' : ranked.length ? 'reported_liquidity' : 'first_supported',
   };
 }
 
@@ -95,9 +95,10 @@ export function createMarketData({ fetchImpl = fetch, now = Date.now } = {}) {
   let health = { state: 'not_checked', checkedAt: null };
   return {
     status: () => ({ ...health }),
-    async check(address, { signal } = {}) {
+    async check(address, { signal, poolAddress = null } = {}) {
       if (signal?.aborted) throw new MarketDataError('STOPPED');
       if (!isSolanaAddress(address)) throw new MarketDataError('INVALID_ADDRESS');
+      if (poolAddress !== null && !isSolanaAddress(poolAddress)) throw new MarketDataError('INVALID_ADDRESS');
       const startedAt = now();
       if (inFlight || startedAt < nextAllowedAt) {
         throw new MarketDataError('COOLDOWN', Math.max(1, Math.ceil((nextAllowedAt - startedAt) / 1000)));
@@ -124,7 +125,7 @@ export function createMarketData({ fetchImpl = fetch, now = Date.now } = {}) {
         }
         const raw = await readJson(response);
         const fetchedAt = now();
-        const snapshot = normalisePairs(raw, address, fetchedAt);
+        const snapshot = normalisePairs(raw, address, fetchedAt, poolAddress);
         health = { state: 'responded', checkedAt: fetchedAt };
         return snapshot;
       } catch (error) {

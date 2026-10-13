@@ -6,11 +6,15 @@ import { formatRuleEvaluation } from './rules.js';
 import { createScanCommands, scanSummary } from './scan-commands.js';
 import { createLiquidityData, formatLiquidityReport } from './liquidity.js';
 import { SolanaRpcError } from './solana-rpc.js';
+import { createWatchCommands, watchSummary } from './watch-commands.js';
 
-export function createResponder({ market = createMarketData(), agents, feed, liquidity = createLiquidityData() } = {}) {
+export function createResponder({ market = createMarketData(), agents, feed, liquidity = createLiquidityData(), now = Date.now, wait } = {}) {
   const agentSetup = agents ? createAgentSetup(agents) : null;
   const scanCommands = agents && feed ? createScanCommands({ agents, feed }) : null;
+  const watchCommands = agents ? createWatchCommands({ agents, market, now, wait }) : null;
   return async (update, allowedUserIds, signal) => {
+    const watchReply = await watchCommands?.(update, allowedUserIds, signal);
+    if (watchReply) return watchReply;
     const scanReply = await scanCommands?.(update, allowedUserIds, signal);
     if (scanReply) return scanReply;
     const agentReply = agentSetup?.(update, allowedUserIds);
@@ -29,6 +33,7 @@ export function createResponder({ market = createMarketData(), agents, feed, liq
       response.text += `\n\nLiquidity evidence: /liquidity <CA> — manual Raydium classic and supported PumpSwap account observations. Protection verification remains incomplete.\nSolana RPC: ${liquidityHealth.state === 'responded' ? 'account read succeeded' : liquidityHealth.state === 'unavailable' ? 'last evidence check unavailable' : 'not checked this session'}.`;
       if (liquidityHealth.checkedAt !== null) response.text += `\nLiquidity evidence last checked: ${new Date(liquidityHealth.checkedAt).toISOString()}`;
       if (agents) {
+        response.text += '\n\n' + watchSummary(agents, context.userId, now());
         const saved = agents.get(context.userId);
         response.text += `\n\nYour saved criteria: ${saved.approved ? 'approved' : 'none approved'}${saved.draft ? '; draft in progress' : ''}. Use /agent to review.`;
         if (feed) {
