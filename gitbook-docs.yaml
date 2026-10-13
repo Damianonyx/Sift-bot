@@ -1,6 +1,6 @@
 $schema: https://api.gitbook.com/gitbook-docs.yaml
 site:
-  title: Sift Documentation
+  title: Sift Docs
   structure:
     - type: space
       key: sift-docs
