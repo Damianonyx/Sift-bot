@@ -9,6 +9,7 @@ const ISSUES = {
   FEED_UNAVAILABLE: 'Candidate feed unavailable. Coverage is interrupted.',
   PARTIAL_COVERAGE: 'Some feed rows were invalid or outside this cycle’s limit.',
   MARKET_UNAVAILABLE: 'Some market checks were unavailable; unknown data did not qualify.',
+  RISK_UNKNOWN: 'Required risk evidence is incomplete, unsupported or temporarily limited. These candidates did not qualify.',
   DELIVERY_ISSUE: 'An alert delivery failed or is uncertain. Use /alerts to inspect saved reports.',
   DELIVERY_LIMITED: 'Telegram delivery is rate-limited; some alerts are suppressed.',
   CHAT_UNAVAILABLE: 'Telegram denied chat access; scanning was paused.',
@@ -28,7 +29,7 @@ export function scanSummary(agents, id) {
   const lines = [`Your discovery scan: ${scan.state}.`];
   if (scan.last_run !== null) {
     lines.push(`Last cycle: ${new Date(scan.last_run).toISOString()}`,
-      `Checked ${scan.checked}; passed required market rules ${scan.matched}; suppressed by mute/limits ${scan.suppressed}.`);
+      `Checked ${scan.checked}; passed required rules ${scan.matched}; suppressed by mute/limits ${scan.suppressed}.`);
   } else lines.push('No cycle has completed for this agent yet.');
   if (scan.issue) lines.push(ISSUES[scan.issue] ?? 'A service issue affected scanning.');
   const undelivered = agents.discoveryIssues(id);
@@ -60,7 +61,7 @@ export function createScanCommands({ agents, feed }) {
           const reason = blockReason(saved);
           if (reason) return { chat_id: id, text: reason, ...ack('Scanning remains blocked.') };
           agents.discoverySet(id, 'active', criteriaKey(saved.approved));
-          return { chat_id: id, text: 'Discovery started for your approved market rules. The next cycle begins within about one minute while this bot is running.\n\nUse /pause, /resume, /stop or /scan.\n\n' + DISCOVERY_COVERAGE, ...ack('Discovery started.') };
+          return { chat_id: id, text: 'Discovery started for your approved rules. The next cycle begins within about one minute while this bot is running.\n\nUse /pause, /resume, /stop or /scan.\n\n' + DISCOVERY_COVERAGE, ...ack('Discovery started.') };
         }
         const alert = agents.discoveryAlert(id, value);
         if (!alert) return ack('That report is not available for your account.');
@@ -84,7 +85,7 @@ export function createScanCommands({ agents, feed }) {
         saved.approved ? `Approved rules · ${saved.approved.name}\n${saved.approved.rules.map(describeRule).join('\n')}` : '',
         DISCOVERY_COVERAGE,
         `Private test limits: roughly one cycle/minute, up to ${ALERT_LIMIT} new alerts per cycle per user. Extra matches may be delayed or missed; /scan shows suppression. Quiet hours are not implemented.`,
-        'Only approved supported rules are applied. Liquidity protection, developer activity and bundles are unavailable. Market monitoring is separate: use /watch. Unknown required metrics cannot pass. An unapproved edit does not change a running scan’s previously approved rules.',
+        'Only approved supported rules are applied. Risk checks have limited coverage; unknown bundle coverage blocks the full risk policy. Market monitoring is separate: use /watch. Unknown required metrics cannot pass. An unapproved edit does not change a running scan’s previously approved rules.',
       ].filter(Boolean).join('\n\n'), !reason && scan.state !== 'active' ? [[button('Start discovery', id, 'start', saved.revision)]] : undefined);
     }
     if (['pause', 'resume', 'stop', 'unmute'].includes(command)) {
@@ -128,3 +129,4 @@ export function createScanCommands({ agents, feed }) {
     return null;
   };
 }
+

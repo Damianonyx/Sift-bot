@@ -5,6 +5,7 @@ import { formatTokenReport } from './token-report.js';
 import { MarketDataError } from './market.js';
 import { AgentStoreError } from './agent-store.js';
 import { TelegramError } from './telegram.js';
+import { attachRisk, needsRisk, RISK_FIELDS, formatRiskReport } from './risk.js';
 
 export const MAX_CANDIDATES = 20;
 export const ALERT_LIMIT = 3;
@@ -17,11 +18,12 @@ export function formatDiscoveryAlert(agent, snapshot, feed) {
     formatTokenReport(snapshot, { hasApprovedRules: true, discovery: true }),
     formatRuleEvaluation(agent, snapshot, { discovery: true }),
     `Candidate source: ${feed.sourceUrl}\nFeed fetched: ${new Date(feed.fetchedAt).toISOString()}${feed.cached ? ' (Sift feed cache)' : ''}`,
-    'Only your approved checks determined this match. Liquidity protection, wallet activity and bundles remain unsupported. Use Monitor to set up market monitoring.',
+    snapshot.risk ? formatRiskReport(snapshot.risk,{ compact:true }) : 'Only your approved market checks determined this match. Risk checks were not requested.',
+    'Use /risk <CA> for detailed risk evidence. Monitor sets up market monitoring.',
   ].join('\n\n');
 }
 
-export function createDiscoveryRunner({ feed, market, agents, call, allowedUserIds, now = Date.now, wait = delay }) {
+export function createDiscoveryRunner({ feed, market, agents, risk, call, allowedUserIds, now = Date.now, wait = delay }) {
   let nextDeliveryAt = 0;
   function current(id, key) {
     if (!allowedUserIds.has(id)) return null;
@@ -77,12 +79,20 @@ export function createDiscoveryRunner({ feed, market, agents, call, allowedUserI
         }
         continue;
       }
+      const riskNeeded = scans.some((scan) => {
+        const approved = current(scan.user_id,scan.criteria_key);
+        if (!approved || !needsRisk(approved.rules)) return false;
+        // Avoid expensive chain reads for candidates already failing required market rules.
+        return evaluateAgent(approved,snapshot,{ now:now() }).checks.filter((r) => r.mode === 'require' && !RISK_FIELDS.includes(r.field)).every((r) => r.state === 'pass');
+      });
+      if (riskNeeded && risk) snapshot = await attachRisk(snapshot,risk,{ signal });
       for (const scan of scans) {
         const id = scan.user_id;
         const approved = current(id, scan.criteria_key);
         if (!approved || signal?.aborted) continue;
         const stat = stats.get(id);
-        const result = evaluateAgent(approved, snapshot);
+        const result = evaluateAgent(approved, snapshot,{ now:now() });
+        if (result.checks.some((r) => RISK_FIELDS.includes(r.field) && r.state === 'unknown')) stat.issue = 'RISK_UNKNOWN';
         stat.checked++;
         agents.discoveryRecord(id, scan.criteria_key, candidate.address, snapshot.fetchedAt, result);
         if (!result.matches) continue;
@@ -129,3 +139,4 @@ export function createDiscoveryRunner({ feed, market, agents, call, allowedUserI
     },
   };
 }
+

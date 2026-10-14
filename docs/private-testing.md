@@ -11,12 +11,12 @@ market monitoring have synthetic automated coverage. Telegram welcome/check
 replies and candidate-feed access were previously observed in owner screenshots.
 A real qualifying discovery alert and the new live monitoring path are pending.
 
-Natural-language AI, verified liquidity protection, developer attribution and
-sales/transfer classification, and coordinated-buy/bundle investigation are not
-connected. The owner's full strategy remains blocked. Do not discard or weaken
-that draft to manufacture an alert. A separate market-only test, if deliberately
-chosen by a tester, must be reviewed for that limited scope and is not evidence
-that the full strategy works.
+Risk evidence now has offline coverage for exact LP burns/locks, signing-creator
+holdings, direct sales/transfers, atomic coordinated buys and supplied Jito bundle
+IDs. Read [the precise coverage](risk-evidence.md). General bundle coverage is
+still unknown; the full strategy cannot yet qualify coins. AI interpretation
+and continuous wallet/lock event monitoring remain unavailable. Do not weaken
+required checks to manufacture an alert.
 
 ## Owner acceptance before invitations
 
@@ -26,13 +26,16 @@ that the full strategy works.
 
    ```sh
    git fetch origin &&
-   git switch codex/market-monitoring &&
+   git switch codex/risk-verification &&
    npm test &&
+   npm run preflight &&
    npm start
    ```
 
 3. Send `/status`, `/agent` and `/scan`. Verify saved thresholds and unresolved
-   instructions are intact. The full unsupported strategy must remain blocked.
+   instructions are intact. Old extra instructions must be retained. /riskrules can explicitly replace them
+   with the displayed policy, followed by separate approval. Unknown required
+   risk results must still prevent qualification.
 4. Send `/watch`, then submit a chosen CA, drop percentage and duration using
    the displayed format. Review scope before starting. Check the reported fixed
    pool, baseline, source link and exact UTC end time against the source.
@@ -49,8 +52,21 @@ that the full strategy works.
    private rules or operate another user's controls. `/id` remains available
    privately so invited testers can obtain their own IDs.
 
-The current version is incomplete for the owner's full screening requirements.
-Broader testing of those claims waits for the missing evidence integrations.
+9. Run `/liquidity <CA>` and `/risk <CA>` against independently known examples:
+   verified burn; full long-duration lock; one-second-short/partial/cancelable
+   lock; creator with holdings; partial sale; zero holdings; ordinary transfer;
+   atomic buys; same-slot suspicion; missing transaction and unsupported pool.
+   Reconcile exact mint, pool, slot, amount, unlock time and transaction links.
+10. Use `/bundle <CA> <known Jito bundle ID>` for a recent independently known
+    bundle. Confirm finalized matching buys exclude it; expired/not-found statuses
+    remain unknown. This does not test exhaustive bundle coverage.
+11. Record source denial/rate limits, stale data and cooldown outcomes. Every
+    required unknown must be visible and must suppress matching alerts. Confirm
+    reports fit mobile and do not claim “never sold” or “bundle-free”.
+
+Live evidence has not been validated here. This private build can test the
+implemented decisions and unknown behavior, but the full strategy/public release
+remain blocked by missing general bundle coverage and outstanding acceptance.
 
 ## Add invited testers after owner acceptance
 
@@ -80,9 +96,9 @@ continuous access. No purchase or paid upgrade is authorised here.
 | Day | Focus |
 | --- | --- |
 | 1 | Access, mobile setup, explicit rule approval and scope comprehension |
-| 2 | Discovery relevance, CA identity, evidence and missed-source coverage |
-| 3 | Monitor baseline/pool, real threshold checks and expiry controls |
-| 4 | Restart persistence, pause/stop, interruption and recovery behavior |
+| 2 | LP burn/lock evidence, exact 100% coverage and six-month boundary |
+| 3 | Creator holdings, partial sales, transfers, coordination and bundle examples |
+| 4 | Discovery/market monitor evidence, restart, pause/stop and recovery |
 | 5 | Multiple testers, source limits, delayed/suppressed/duplicate reports |
 | 6 | Repeat normal use and reproduce reported failures |
 | 7 | Review all outcomes and decide what must be fixed before any public test |
@@ -106,3 +122,4 @@ capacity limits, retention/deletion behavior, uptime and operating costs. Any
 remaining limitation must be accurately represented in the bot and public copy.
 The user makes the public-release decision; this branch neither removes private
 access restrictions nor deploys hosting.
+

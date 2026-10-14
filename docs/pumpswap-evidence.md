@@ -1,5 +1,9 @@
 # PumpSwap account observations
 
+> Historical stage notes. The current implementation, exact risk policy and remaining
+> coverage limits are documented in [risk evidence](risk-evidence.md). Earlier live
+> screenshots do not validate the newer verification paths.
+
 The owner's 2026-10-12 screenshot confirmed that `/liquidity` reached public
 Solana RPC and read finalized slot 456075024. Its selected pool was owned by
 `pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA`, the official PumpSwap program.
@@ -86,3 +90,4 @@ and timestamps in tests are synthetic, not live findings about that pool.
 
 No real PumpSwap LP balance, burn or timed lock has been verified by the new
 decoder yet. No API key, paid endpoint, hosting or wallet connection is added.
+

@@ -1,5 +1,9 @@
 # Manual liquidity evidence: first supported account reader
 
+> Historical stage notes. The current implementation, exact risk policy and remaining
+> coverage limits are documented in [risk evidence](risk-evidence.md). Earlier live
+> screenshots do not validate the newer verification paths.
+
 This stage implements `/liquidity <CA>` for allowed testers in private chats.
 It is a read-only account diagnostic, not a completed lock verifier. Every
 report keeps the overall protection requirement **unknown**. It does not
@@ -122,3 +126,4 @@ Live checks still required:
 
 No real burn, timed lock, lock percentage or six-month duration has been
 verified by this stage. Those remain subsequent evidence work.
+

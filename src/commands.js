@@ -7,8 +7,10 @@ import { createScanCommands, scanSummary } from './scan-commands.js';
 import { createLiquidityData, formatLiquidityReport } from './liquidity.js';
 import { SolanaRpcError } from './solana-rpc.js';
 import { createWatchCommands, watchSummary } from './watch-commands.js';
+import { createRiskData, attachRisk, needsRisk, formatRiskReport } from './risk.js';
+import { createBundleData, isBundleId } from './bundle-evidence.js';
 
-export function createResponder({ market = createMarketData(), agents, feed, liquidity = createLiquidityData(), now = Date.now, wait } = {}) {
+export function createResponder({ market = createMarketData(), agents, feed, liquidity = createLiquidityData(), risk = createRiskData({ liquidity }), bundles = createBundleData(), now = Date.now, wait } = {}) {
   const agentSetup = agents ? createAgentSetup(agents) : null;
   const scanCommands = agents && feed ? createScanCommands({ agents, feed }) : null;
   const watchCommands = agents ? createWatchCommands({ agents, market, now, wait }) : null;
@@ -30,7 +32,8 @@ export function createResponder({ market = createMarketData(), agents, feed, liq
       if (health.checkedAt !== null) response.text += `\nSource last checked: ${new Date(health.checkedAt).toISOString()}`;
       response.text += '\nA successful API request does not establish how fresh the provider data is.';
       const liquidityHealth = liquidity.status();
-      response.text += `\n\nLiquidity evidence: /liquidity <CA> — manual Raydium classic and supported PumpSwap account observations. Protection verification remains incomplete.\nSolana RPC: ${liquidityHealth.state === 'responded' ? 'account read succeeded' : liquidityHealth.state === 'unavailable' ? 'last evidence check unavailable' : 'not checked this session'}.`;
+      response.text += `\n\nLiquidity evidence: /liquidity <CA> — limited Raydium/PumpSwap LP burn and fixed-cliff lock verification.\nSolana RPC: ${liquidityHealth.state === 'responded' ? 'account read succeeded' : liquidityHealth.state === 'unavailable' ? 'last evidence check unavailable' : 'not checked this session'}.`;
+      response.text += '\nRisk evidence: /risk <CA>. Limited creator attribution and direct swaps; bundle coverage remains unknown. Unknown required checks cannot qualify.';
       if (liquidityHealth.checkedAt !== null) response.text += `\nLiquidity evidence last checked: ${new Date(liquidityHealth.checkedAt).toISOString()}`;
       if (agents) {
         response.text += '\n\n' + watchSummary(agents, context.userId, now());
@@ -44,8 +47,14 @@ export function createResponder({ market = createMarketData(), agents, feed, liq
       }
       return response;
     }
-    if (!['check', 'liquidity'].includes(context.command)) return replyFor(update, allowedUserIds);
+    if (!['check', 'liquidity', 'risk', 'bundle'].includes(context.command)) return replyFor(update, allowedUserIds);
     const reply = (text) => ({ chat_id: context.chatId, text, link_preview_options: { is_disabled: true } });
+    let bundleId;
+    if (context.command === 'bundle') {
+      const parts=context.args.split(/\s+/);
+      if(parts.length!==2 || !isSolanaAddress(parts[0]) || !isBundleId(parts[1])) return reply('Send /bundle <Solana CA> <known Jito bundle ID>. This verifies a supplied bundle; it cannot establish that a token is bundle-free.');
+      context.args=parts[0];bundleId=parts[1];
+    }
     if (!isSolanaAddress(context.args)) {
       return reply(`Send /${context.command} followed by one full Solana token mint address (CA).\n\nExample format: /${context.command} <CA>\nUse the CA itself, without a link. Only Solana is supported in this test.`);
     }
@@ -61,9 +70,16 @@ export function createResponder({ market = createMarketData(), agents, feed, liq
       }
       return reply('DEX Screener data is unavailable or could not be read. No token assessment was made.\n\nTry /check again later. Missing data does not count as a passed check.');
     }
+    if(context.command==='bundle') {
+      const evidence=await bundles.check(snapshot,bundleId,{signal});
+      if(signal?.aborted)return null;
+      return reply([`Sift · Bundle evidence\nCA: ${snapshot.address}\nSelected pool: ${snapshot.selected?.address ?? 'unknown'}`,
+        `${evidence.state.toUpperCase()} · ${evidence.reason}`,...evidence.links,
+        'Manual evidence only. General bundle coverage remains unknown. Your rules and scan state are unchanged.'].join('\n\n'));
+    }
     if (context.command === 'liquidity') {
       try {
-        const result = await liquidity.check(snapshot, { signal });
+        const result = await liquidity.check(snapshot, { signal, verifyProtection:true });
         if (signal?.aborted) return null;
         return reply(formatLiquidityReport(result));
       } catch (error) {
@@ -74,8 +90,15 @@ export function createResponder({ market = createMarketData(), agents, feed, liq
         return reply('Liquidity evidence could not be read. Protection remains unknown; this cannot pass a required check. Your saved rules are unchanged.');
       }
     }
+    if (context.command === 'risk' || needsRisk(approved?.rules)) {
+      snapshot = await attachRisk(snapshot,risk,{ signal });
+      if (signal?.aborted) return null;
+      if (context.command === 'risk') return reply(formatRiskReport(snapshot.risk));
+    }
     const assessment = approved ? '\n\n' + formatRuleEvaluation(approved, snapshot) : '';
     const draftNotice = saved?.draft ? '\n\nYou have an unapproved draft. It is not applied here; use /agent to review it.' : '';
-    return reply(formatTokenReport(snapshot, { hasApprovedRules: Boolean(approved) }) + assessment + draftNotice);
+    return reply(formatTokenReport(snapshot, { hasApprovedRules: Boolean(approved) }) + assessment +
+      (snapshot.risk ? '\n\n' + formatRiskReport(snapshot.risk,{ compact:true }) + '\nUse /risk <CA> for transaction evidence and coverage.' : '') + draftNotice);
   };
 }
+
