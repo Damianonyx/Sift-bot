@@ -1,4 +1,5 @@
 import { commandFor } from './bot.js';
+import { MARKET_FIELDS } from './rules.js';
 import { isSolanaAddress } from './market.js';
 import { WATCH_LIMIT, TOTAL_WATCH_LIMIT, REVIEW_TTL } from './watch-store.js';
 import { watchDetails, usableWatchSnapshot, watchMarketCheck } from './watch.js';
@@ -76,7 +77,7 @@ export function createWatchCommands({ agents, market, now = Date.now, wait }) {
       if (dropPercent <= 0 || dropPercent > 100 || hours < 1 || hours > 168) return reply(id, USAGE);
       return agents.process(update.update_id, () => {
         const saved = agents.get(id);
-        const row = agents.watchCreate(id, parts[0], { dropPercent, hours, rules: saved.approved?.rules ?? [] }, now());
+        const row = agents.watchCreate(id, parts[0], { dropPercent, hours, rules: saved.approved?.rules.filter((r) => MARKET_FIELDS.includes(r.field)) ?? [] }, now());
         if (!row) return reply(id, `A monitor for that token already exists, or the private-test capacity is full (${WATCH_LIMIT} open monitors per user; ${TOTAL_WATCH_LIMIT} total). Use /watchlist to review or stop one.`);
         return reply(id, 'Review market monitoring · expires in 10 minutes\n\n' + watchDetails(row, now()), controls(row, now()));
       });
@@ -96,3 +97,4 @@ export function createWatchCommands({ agents, market, now = Date.now, wait }) {
     return null;
   };
 }
+

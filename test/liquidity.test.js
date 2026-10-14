@@ -110,7 +110,7 @@ test('RPC uses fixed anonymous read-only requests and rejects malformed or misma
     await assert.rejects(bad.accounts([POOL]), (error) => error instanceof SolanaRpcError && !error.stack.includes('PRIVATE_DETAILS'));
   }
   await assert.rejects(createSolanaRpc({ fetchImpl: noRequest }).accounts(['bad']), /INVALID_REQUEST/);
-  await assert.rejects(createSolanaRpc({ fetchImpl: noRequest }).accounts(Array(5).fill(POOL)), /INVALID_REQUEST/);
+  await assert.rejects(createSolanaRpc({ fetchImpl: noRequest }).accounts(Array(45).fill(POOL)), /INVALID_REQUEST/);
 });
 
 test('RPC rate limits, oversized responses, errors and cancelled reads never appear as protection', async () => {
@@ -212,11 +212,11 @@ test('maximum liquidity report fits Telegram and does not label supply gaps as b
   const result = await createLiquidityData({ rpc: stubRpc(fixture(123456789n)), now: () => NOW }).check(marketSnapshot());
   const text = formatLiquidityReport(result);
   assert.ok(text.length < 4096); assert.match(text, /0\.123456789/);
-  assert.match(text, /Burn history: unknown/); assert.match(text, /Unlock time \/ six months remaining: unknown/);
+  assert.match(text, /Burn history: unknown/); assert.match(text, /lock percentage \/ unlock time: unknown/);
   assert.doesNotMatch(text, /(?:^|\n)PASS\b|100% burned|verified lock: yes/);
 });
 
-test('the complete synthetic RPC transport to Telegram report path reads three times and keeps exact large supplies', async () => {
+test('the complete synthetic RPC transport to Telegram report path attempts protection evidence as well and keeps exact large supplies', async () => {
   const f = fixture(9007199254740993n); f.bytes[0].writeBigUInt64LE(18446744073709551615n, 720);
   let calls = 0;
   const rpc = createSolanaRpc({ fetchImpl: async (_url, options) => {
@@ -228,7 +228,7 @@ test('the complete synthetic RPC transport to Telegram report path reads three t
   } });
   const respond = createResponder({ market: { check: async () => marketSnapshot() }, liquidity: createLiquidityData({ rpc, now: () => NOW }) });
   const reply = await respond(update('/liquidity ' + CA), new Set([42]));
-  assert.equal(calls, 3); assert.equal(reply.chat_id, 42);
+  assert.equal(calls, 4); assert.equal(reply.chat_id, 42);
   assert.match(reply.text, /9007199\.254740993/); assert.match(reply.text, /finalized slot 1234/);
   assert.match(reply.text, /Snapshot freshness: recent/); assert.match(reply.text, /liquidity protection: UNKNOWN/);
 });
@@ -247,3 +247,4 @@ test('in-flight evidence checks do not multiply RPC traffic and cancellation aft
   const rpc = createSolanaRpc({ fetchImpl: async () => { controller.abort(); return Response.json({ jsonrpc: '2.0', id: 1, result: { context: { slot: 1 }, value: [f.accounts()[0]] } }); } });
   await assert.rejects(rpc.accounts([POOL], { signal: controller.signal }), /STOPPED/);
 });
+

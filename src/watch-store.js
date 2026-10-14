@@ -29,7 +29,7 @@ export function watchStore(db, safe) {
         !Number.isFinite(value.config.dropPercent) || value.config.dropPercent <= 0 || value.config.dropPercent > 100 ||
         !Number.isInteger(value.config.hours) || value.config.hours < 1 || value.config.hours > 168 ||
         !Number.isSafeInteger(value.created_at)) throw new Error('Invalid saved monitor');
-    validateRules(value.config.rules, { requireStrict: Boolean(value.config.rules?.length) });
+    validateRules(value.config.rules, { requireStrict: false });
     if (['active','paused'].includes(value.state) || value.baseline) {
       if (!Number.isSafeInteger(value.started_at) || !Number.isSafeInteger(value.ends_at) || value.ends_at <= value.started_at ||
           value.baseline?.address !== value.token || !isSolanaAddress(value.baseline?.selected?.address) ||
@@ -51,7 +51,7 @@ export function watchStore(db, safe) {
       if (!Number.isSafeInteger(user) || user <= 0 || !isSolanaAddress(token) ||
           !Number.isFinite(config.dropPercent) || config.dropPercent <= 0 || config.dropPercent > 100 ||
           !Number.isInteger(config.hours) || config.hours < 1 || config.hours > 168) throw new Error('Invalid watch');
-      validateRules(config.rules, { requireStrict: Boolean(config.rules?.length) });
+      validateRules(config.rules, { requireStrict: false });
       const existing = open(now);
       if (existing.filter((row) => row.user_id === user).length >= WATCH_LIMIT || existing.length >= TOTAL_WATCH_LIMIT) return null;
       if (existing.some((row) => row.user_id === user && row.token === token)) return null;
@@ -111,3 +111,4 @@ export function watchStore(db, safe) {
     watchIssues: safe((user) => db.prepare("SELECT COUNT(*) AS count FROM watch_events WHERE user_id=? AND state<>'sent'").get(user).count),
   };
 }
+

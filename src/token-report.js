@@ -42,10 +42,11 @@ export function formatTokenReport(snapshot, { hasApprovedRules = false, discover
     `Selected pool activity; provider rolling windows\n${windows}`,
     'Coverage: DEX Screener-indexed pools with this CA as base token; one pool shown. New or unindexed venues may be missing.',
     `Pool age (provider creation time): ${age(pair.createdAt, snapshot.fetchedAt)}\nToken creation / trading start: unknown.`,
-    'Unknown / unsupported: liquidity locks, holder count, holder concentration, coordinated wallets, bundles, deployer identity, developer sales/transfers, token permissions.',
+    snapshot.risk ? 'Risk evidence appears below; /risk <CA> shows detailed coverage and transaction links. Holder concentration and token permissions remain unknown.' : 'Not assessed in this market snapshot: liquidity protection, developer sales/transfers, bundles, holder concentration and token permissions. Use /risk <CA> for supported evidence.',
     freshness,
     `Chart / pool evidence: https://dexscreener.com/solana/${pair.address}\nAPI source: ${snapshot.sourceUrl}`,
     discovery ? 'Match against approved screening rules; this does not establish safety or predict profit.' :
       hasApprovedRules ? 'Manual market snapshot; your approved-rule assessment follows. This is not a discovery alert or a safety assessment.' : 'Manual market snapshot. No strategy has been applied; this is not a match alert or a safety assessment.',
   ].join('\n\n');
 }
+

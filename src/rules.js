@@ -1,4 +1,8 @@
-export const RULE_FIELDS = ['marketCap', 'liquidityUsd', 'volume1h', 'poolAgeMinutes'];
+import { RISK_FIELDS } from './risk.js';
+import { sixMonthsAfter, rawAmount } from './evidence-utils.js';
+import { isSolanaAddress } from './market.js';
+export const MARKET_FIELDS = ['marketCap', 'liquidityUsd', 'volume1h', 'poolAgeMinutes'];
+export const RULE_FIELDS = [...MARKET_FIELDS, ...RISK_FIELDS];
 const validNumber = (n) => typeof n === 'number' && Number.isFinite(n) && n >= 0;
 
 export function validateRules(rules, { requireStrict = true } = {}) {
@@ -10,7 +14,9 @@ export function validateRules(rules, { requireStrict = true } = {}) {
     if (!rule || !RULE_FIELDS.includes(rule.field) || seen.has(rule.field) ||
         !['require', 'warn'].includes(rule.mode)) throw new Error('A screening rule is unsupported or incomplete.');
     seen.add(rule.field);
-    if (rule.field === 'marketCap') {
+    if (RISK_FIELDS.includes(rule.field)) {
+      if (rule.mode !== 'require' || rule.policy !== 'private-test-v1') throw new Error('Risk checks require the complete private-test policy.');
+    } else if (rule.field === 'marketCap') {
       if (!validNumber(rule.min) || !validNumber(rule.max) || rule.min > rule.max) {
         throw new Error('Market cap needs a valid minimum and maximum.');
       }
@@ -26,12 +32,15 @@ export function describeRule(rule) {
     liquidityUsd: () => `Selected pool liquidity: at least ${money(rule.value)}`,
     volume1h: () => `Selected pool volume over 1h: at least ${money(rule.value)}`,
     poolAgeMinutes: () => `Selected pool age: at most ${rule.value} minutes (not token creation or trading start)`,
+    liquidityProtection: () => 'Selected pool: 100% LP protection; verified burns accepted; locks need six UTC calendar months remaining (month-end clamped)',
+    developerHolding: () => 'Signing token creator still holds tokens; partial sales allowed and flagged; transfers reported separately',
+    buyingCoordination: () => 'Exclude confirmed bundles/coordinated buys; flag suspicions; unknown coverage blocks qualification',
   };
   return `${rule.mode === 'require' ? 'Required' : 'Warning only'} · ${descriptions[rule.field]()}`;
 }
 
-export function evaluateRules(rules, snapshot) {
-  validateRules(rules);
+export function evaluateRules(rules, snapshot, { now = Date.now(), requireStrict = true } = {}) {
+  validateRules(rules, { requireStrict });
   const pool = snapshot?.selected;
   const age = pool && validNumber(pool.createdAt) && validNumber(snapshot.fetchedAt) &&
     pool.createdAt <= snapshot.fetchedAt ? (snapshot.fetchedAt - pool.createdAt) / 60000 : null;
@@ -42,6 +51,22 @@ export function evaluateRules(rules, snapshot) {
     poolAgeMinutes: age,
   };
   const checks = rules.map((rule) => {
+    if (RISK_FIELDS.includes(rule.field)) {
+      const risk = snapshot?.risk;
+      const current = risk?.address === snapshot.address && risk?.pool === pool?.address &&
+        Number.isFinite(risk?.checkedAt) && risk.checkedAt <= now && now - risk.checkedAt <= 120_000;
+      const evidence = current ? risk[rule.field] : null;
+      let state = evidence?.state === 'fail' ? 'fail' : 'unknown';
+      const fresh = Number.isFinite(evidence?.observedAt) && now - evidence.observedAt <= 120_000 && evidence.observedAt <= now + 30_000;
+      if (evidence?.state === 'pass' && fresh && evidence.links?.length) {
+        if (rule.field === 'liquidityProtection' && evidence.protectedPercent === 100 &&
+          (evidence.kind === 'burn' || evidence.kind === 'lock' && Number.isSafeInteger(evidence.unlockAt) && evidence.unlockAt >= sixMonthsAfter(now))) state = 'pass';
+        if (rule.field === 'developerHolding' && isSolanaAddress(evidence.wallet) && rawAmount(evidence.amount) && BigInt(evidence.amount) > 0n) state = 'pass';
+        // No available adapter establishes complete bundle coverage. A bare
+        // provider boolean cannot turn this required check into a pass.
+      }
+      return { ...rule, valueObserved:null, state };
+    }
     const value = metrics[rule.field];
     let state = 'unknown';
     if (validNumber(value)) {
@@ -61,8 +86,8 @@ export function assertApprovable(agent) {
   validateRules(agent.rules);
 }
 
-export function evaluateAgent(agent, snapshot) {
-  const result = evaluateRules(agent.rules, snapshot);
+export function evaluateAgent(agent, snapshot, options) {
+  const result = evaluateRules(agent.rules, snapshot, options);
   const unresolved = !Array.isArray(agent.pendingRequirements) || agent.pendingRequirements.length > 0;
   return { ...result, matches: result.matches && !unresolved, unresolved };
 }
@@ -77,3 +102,4 @@ export function formatRuleEvaluation(approved, snapshot, { discovery = false } =
     discovery ? 'Evaluated at the market-data retrieval time shown above.' : 'Manual evaluation of this submitted CA. Use /scan to review discovery status.',
   ].join('\n');
 }
+

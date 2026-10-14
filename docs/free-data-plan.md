@@ -1,5 +1,9 @@
 # Free-data integration plan
 
+> Historical stage notes. The current implementation, exact risk policy and remaining
+> coverage limits are documented in [risk evidence](risk-evidence.md). Earlier live
+> screenshots do not validate the newer verification paths.
+
 Reviewed 2026-10-12. External-service budget: **$0**. No API subscription,
 paid fallback, wallet connection or continuous hosting is enabled by this
 plan. Existing Codespaces usage remains subject to the owner's allowance.
@@ -126,3 +130,4 @@ strategy still needs all of its strict risk checks before it can qualify.
 This plan does not promise that every requested check can be supported by
 free services. It identifies the evidence that must be tested before making
 that claim or proposing a paid option.
+

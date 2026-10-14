@@ -2,6 +2,8 @@ import { isSolanaAddress } from './market.js';
 import { createSolanaRpc, RPC_URL, SolanaRpcError } from './solana-rpc.js';
 import { decodeRaydiumPool, observeLpAccounts, LiquidityEvidenceError, RAYDIUM_V4 } from './raydium-liquidity.js';
 import { decodePumpSwapPool, observePumpSwapLp, PUMPSWAP } from './pumpswap-liquidity.js';
+import { verifyLiquidityProtection } from './liquidity-protection.js';
+import { unknown } from './evidence-utils.js';
 
 const READERS = new Map([
   [RAYDIUM_V4, { name: 'Raydium classic AMM v4', decode: decodeRaydiumPool, observe: observeLpAccounts }],
@@ -34,7 +36,7 @@ export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } 
   let health = { state: 'not_checked', checkedAt: null };
   return {
     status: () => ({ ...health }),
-    async check(snapshot, { signal } = {}) {
+    async check(snapshot, { signal, verifyProtection = false } = {}) {
       if (signal?.aborted) throw new SolanaRpcError('STOPPED');
       if (!isSolanaAddress(snapshot?.address) || (snapshot.selected && !isSolanaAddress(snapshot.selected.address))) throw new LiquidityEvidenceError('INVALID_ADDRESS');
       if (inFlight || now() < nextAllowedAt) throw new SolanaRpcError('COOLDOWN', Math.max(1, Math.ceil((nextAllowedAt - now()) / 1000)));
@@ -59,9 +61,25 @@ export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } 
         }
         result.slot = final.slot; result.lpMint = pool.lpMint;
         result.observation = reader.observe(pool, final.accounts.slice(1));
+        if (verifyProtection) {
+          try {
+            result.protection = await verifyLiquidityProtection({ rpc, pool, snapshotSlot: final.slot,
+              observation: result.observation, lpProgram: final.accounts[1].owner, now, signal,
+              readLinked: async (extra, minContextSlot) => {
+                const reread = await rpc.accounts([...addresses, ...extra], { signal, minContextSlot });
+                const current = reader.decode(reread.accounts[0], snapshot.address, result.pool);
+                if (['lpMint','baseVault','quoteVault','baseMint','quoteMint','authority'].some((k) => current[k] !== pool[k])) throw new LiquidityEvidenceError('POOL_CHANGED');
+                result.slot = reread.slot;
+                result.observation = reader.observe(current, reread.accounts.slice(1,4));
+                return { observation: result.observation, extra: reread.accounts.slice(4) };
+              } });
+          } catch {
+            result.protection = unknown('Protection evidence unavailable or incomplete.');
+          }
+        }
         let timeUnavailable = false;
         try {
-          result.blockTime = await rpc.blockTime(final.slot, { signal });
+          result.blockTime = await rpc.blockTime(result.slot, { signal });
           if (result.blockTime !== null) {
             const age = now() - result.blockTime;
             result.freshness = age < -30_000 ? 'future' : age > 120_000 ? 'stale' : 'recent';
@@ -73,6 +91,10 @@ export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } 
         }
         if (signal?.aborted) throw new SolanaRpcError('STOPPED');
         result.fetchedAt = now();
+        if (result.protection) {
+          if (result.freshness !== 'recent') result.protection = unknown('The on-chain snapshot is not current.');
+          result.protectionRequirement = result.protection.state;
+        }
         health = { state: timeUnavailable ? 'unavailable' : 'responded', checkedAt: result.fetchedAt };
         return result;
       } catch (error) {
@@ -93,7 +115,11 @@ export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } 
 
 export function formatLiquidityReport(result) {
   const lines = ['Sift · Liquidity evidence check', `Solana CA: ${result.address}`,
-    'Overall liquidity protection: UNKNOWN. This report cannot pass a required protection check.'];
+    `Overall liquidity protection: ${(result.protectionRequirement ?? 'unknown').toUpperCase()}.${result.protectionRequirement === 'pass' ? ' Selected-pool LP claims only; other pools are not assessed.' : ' This report cannot pass a required protection check.'}`];
+  if (result.protection) {
+    lines.push(result.protection.reason);
+    lines.push(...result.protection.links.slice(0,3));
+  }
   if (result.pool) lines.push(`Selected pool: ${result.pool}\nCoverage: one DEX Screener-selected pool from ${result.poolCount} supported market pools; other pools are not assessed. ${result.selection === 'reported_liquidity' ? 'Selected by highest known reported USD liquidity.' : 'Unranked fallback; pool liquidity amounts were unknown.'}`);
   if (result.reason) lines.push(REASONS[result.reason] ?? 'Required on-chain evidence could not be verified.');
   if (result.program) lines.push(`Pool program: ${READERS.get(result.program)?.name ?? 'unsupported'}\nProgram evidence: https://solscan.io/account/${result.program}`);
@@ -104,10 +130,11 @@ export function formatLiquidityReport(result) {
     lines.push(`LP ownership tokens outstanding: ${quantity}`);
     lines.push(observation.noOutstandingLp ? 'Observed: the LP mint has zero outstanding supply at this slot. The pool and its linked vaults passed the supported account checks.' :
       'Observed: LP tokens remain outstanding. They may be held by wallets or lockers; this check does not establish which.');
-    lines.push(result.program === PUMPSWAP ? 'Burn history: unknown. The pool’s recorded LP amount and the current mint supply can differ. No burn transaction, lock owner or unlock date was verified.' :
+    lines.push(result.protection?.kind === 'burn' ? 'Burn evidence: a successful LP burn instruction was verified. Current LP supply is zero. This does not infer a burn percentage from a supply difference.' : result.program === PUMPSWAP ? 'Burn history: unknown. The pool’s recorded LP amount and the current mint supply can differ. Supply differences are not labelled burns.' :
       'Burn history: unknown. Supply differences can include an unissued protocol minimum; they are not labelled as burned liquidity. No burn transaction was traced.');
   }
-  lines.push('Verified lock percentage: unknown.\nUnlock time / six months remaining: unknown.\n100% protected across pools: unknown.\nTimed lockers, concentrated-liquidity positions and other pool programs are unsupported.');
+  lines.push(result.protection?.kind === 'lock' ? `100% of outstanding LP is in verified fixed-cliff custody.\nEarliest unlock: ${result.protection.unlockAt === null ? 'beyond supported display range' : new Date(result.protection.unlockAt).toISOString()}.\nAt least six UTC calendar months remain (month-end clamped).` : 'Verified lock percentage / unlock time: unknown or not applicable to verified burns.');
+  lines.push('100% protected across all pools: unknown. Only supported Raydium/PumpSwap LP claims are assessed. Fixed, noncancelable Streamflow classic-SPL locks are supported; other lockers, positions and pool programs are unknown. Program upgrades are outside this snapshot guarantee.');
   if (result.slot !== null) lines.push(`On-chain snapshot: finalized slot ${result.slot}\nEstimated block time: ${result.blockTime === null ? 'unknown' : new Date(result.blockTime).toISOString()}\nSnapshot freshness: ${result.freshness}${result.freshness === 'recent' ? ' (within two minutes of retrieval; not a future guarantee)' : ' — do not treat this as current verified protection'}.`);
   lines.push(`Market pool selected at: ${new Date(result.marketFetchedAt).toISOString()}\nEvidence check completed: ${new Date(result.fetchedAt).toISOString()}\nNo Sift cache.${result.pool ? ` RPC source: ${result.sourceUrl}` : ' No RPC request was made because no pool was selected.'}`);
   if (result.pool) lines.push(`Pool evidence: https://solscan.io/account/${result.pool}`);
@@ -115,3 +142,4 @@ export function formatLiquidityReport(result) {
   lines.push('Manual evidence only. Your saved rules and scan state are unchanged. Developer activity and bundles are not checked here.');
   return lines.join('\n\n');
 }
+

@@ -143,6 +143,7 @@ test('synthetic PumpSwap RPC-to-Telegram flow preserves the saved full strategy 
   }});
   const respond=createResponder({agents:store,market:{check:async()=>snapshot()},liquidity:createLiquidityData({rpc:source,now:()=>NOW})});
   const reply=await respond({update_id:123,message:{text:'/liquidity '+CA,from:{id:42,is_bot:false},chat:{id:42,type:'private'}}},new Set([42]));
-  assert.equal(calls,3); assert.match(reply.text,/Pool program: PumpSwap/); assert.match(reply.text,/zero outstanding supply/);
+  assert.equal(calls,4); assert.match(reply.text,/Pool program: PumpSwap/); assert.match(reply.text,/zero outstanding supply/);
   assert.equal(reply.link_preview_options.is_disabled,true); assert.deepEqual(store.get(42),state); assert.equal(store.discoveryGet(42).state,'stopped');
 });
+

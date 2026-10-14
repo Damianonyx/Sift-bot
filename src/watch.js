@@ -38,7 +38,7 @@ export function watchDetails(row, now = Date.now()) {
   } else lines.push(`Duration after you start: ${row.config.hours} hours. A fresh baseline and pool are selected at start.`);
   if (row.issue) lines.push('Some observations are unavailable. Unknown data is not a passed check.');
   if (row.config.rules.length) {
-    const checks = row.baseline ? evaluateRules(row.config.rules, row.baseline).checks : [];
+    const checks = row.baseline ? evaluateRules(row.config.rules, row.baseline, { requireStrict:false }).checks : [];
     lines.push('Captured approved market rules (later agent edits do not change this monitor):\n' + row.config.rules.map((rule) =>
       `${checks.find((c) => c.field === rule.field)?.state.toUpperCase() ?? 'NOT CHECKED'} at baseline · ${describeRule(rule)}`).join('\n'));
   }
@@ -102,7 +102,7 @@ export function createWatchRunner({ agents, market, call, allowedUserIds, now = 
           issue = 'SOURCE_UNAVAILABLE';
         }
         if (!current(row) || signal?.aborted) continue;
-        const checks = snapshot && row.config.rules.length ? evaluateRules(row.config.rules, snapshot).checks : [];
+        const checks = snapshot && row.config.rules.length ? evaluateRules(row.config.rules, snapshot, { requireStrict:false }).checks : [];
         if (checks.some((r) => r.state === 'unknown')) issue ??= 'METRIC_UNKNOWN';
         if (!agents.watchObserve(row.user_id, row.id, row.revision, snapshot, issue, now())) continue;
         const evidence = `Fixed pool: ${pinnedPool}\nChart: https://dexscreener.com/solana/${pinnedPool}\nSource: ${sourceUrl(row.token)}\n${snapshot ? 'API fetched: ' + utc(snapshot.fetchedAt) : 'Check attempted: ' + utc(now())}\nProvider update time: unknown; data may be delayed. No cross-cycle Sift market cache.`;
@@ -128,3 +128,4 @@ export function createWatchRunner({ agents, market, call, allowedUserIds, now = 
     },
   };
 }
+

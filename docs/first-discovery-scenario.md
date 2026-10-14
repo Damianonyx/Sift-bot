@@ -1,5 +1,9 @@
 # First discovery validation scenario
 
+> Historical stage notes. The current implementation, exact risk policy and remaining
+> coverage limits are documented in [risk evidence](risk-evidence.md). Earlier live
+> screenshots do not validate the newer verification paths.
+
 This is the owner's proposed first test case, not a default strategy for
 other users. It is not activated, and no scanner is running. Values below
 record the latest draft shown in the owner's Telegram screenshot; they do
@@ -63,3 +67,4 @@ private Telegram welcome and manual CA delivery already work; automatic
 searching and follow-up monitoring remain incomplete. Hosting is postponed.
 
 See the [free-data integration plan](free-data-plan.md) for the next evidence work.
+

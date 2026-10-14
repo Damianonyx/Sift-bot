@@ -7,6 +7,10 @@ import { createMarketData } from './market.js';
 import { createDiscoveryFeed } from './discovery-feed.js';
 import { createDiscoveryRunner } from './discovery.js';
 import { createWatchRunner } from './watch.js';
+import { createRiskData } from './risk.js';
+import { createLiquidityData } from './liquidity.js';
+import { createSolanaRpc } from './solana-rpc.js';
+import { createBundleData } from './bundle-evidence.js';
 
 const shutdown = new AbortController();
 for (const event of ['SIGINT', 'SIGTERM']) {
@@ -24,8 +28,12 @@ async function main() {
   const agents = openAgentStore();
   const market = createMarketData();
   const feed = createDiscoveryFeed();
-  const respond = createResponder({ agents, market, feed });
-  const discovery = createDiscoveryRunner({ agents, market, feed, call, allowedUserIds });
+  const rpc = createSolanaRpc();
+  const liquidity = createLiquidityData({ rpc });
+  const risk = createRiskData({ rpc, liquidity });
+  const bundles = createBundleData({ rpc });
+  const respond = createResponder({ agents, market, feed, liquidity, risk, bundles });
+  const discovery = createDiscoveryRunner({ agents, market, feed, risk, call, allowedUserIds });
   const monitoring = createWatchRunner({ agents, market, call, allowedUserIds });
   console.log('Sift private test bot is running. Discovery requires approved supported rules and explicit activation.');
   if (allowedUserIds.size === 0) console.log('No testers configured. Only /id lookup is available.');
@@ -45,3 +53,4 @@ main().catch((error) => {
   console.error(error instanceof Error ? error.message : 'Sift could not start.');
   process.exitCode = 1;
 });
+

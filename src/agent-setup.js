@@ -1,5 +1,6 @@
 import { commandFor } from './bot.js';
 import { RULE_FIELDS, describeRule, assertApprovable } from './rules.js';
+import { TEST_RISK_RULES, RISK_FIELDS } from './risk.js';
 
 const QUESTIONS = [
   'Give your agent a name (1–32 characters).',
@@ -7,9 +8,9 @@ const QUESTIONS = [
   'Minimum selected-pool liquidity in USD. Send require or warn followed by your amount, or tap Skip.\nFormat example only: require 10000\nLiquidity amount does not prove liquidity is locked.',
   'Minimum selected-pool volume over the last 1h in USD. Send require or warn followed by your amount, or tap Skip.\nFormat example only: warn 5000',
   'Maximum selected-pool age in minutes. Send require or warn followed by your number of minutes, or tap Skip.\nFormat example only: require 60\nPool creation is not token creation or the start of trading.',
-  'Any other requirements or warnings? Send them in one message (up to 800 characters), or send none if the conditions above cover your request. Extra checks stay unresolved and block approval until Sift can interpret and verify them. Liquidity amount does not establish that liquidity is locked.',
+  'Send risk to require 100% selected-pool LP protection, six calendar months remaining on locks (verified burns accepted), a developer who still holds, and exclusion of confirmed bundles/coordinated buys. Partial sales and suspicions are flagged. Unknown required evidence blocks matches. Or send other requirements (up to 800 characters), or none. Other free text stays unresolved. Earlier unresolved instructions are always retained.',
 ];
-const LIMITATIONS = 'Solana · DEX Screener · one selected pool per token. Provider update time is unknown. Liquidity locks, holder checks, bundles, coordinated wallets, developer activity and token permissions are unsupported.\nAI interpretation is not connected. Approval saves rules only; it does not start a scan. Use /scan to review and activate supported discovery rules separately.';
+const LIMITATIONS = 'Solana · one selected pool. Provider update time is unknown. Risk checks have limited pool, locker, creator and transaction coverage. General bundle coverage is unknown and blocks a required check. No guarantee of safety.\nAI interpretation is not connected. Approval saves rules only; it does not start a scan. Use /scan to review and activate separately.';
 const nameOf = (value) => typeof value === 'string' && !/[\p{Cc}\p{Cf}]/u.test(value) &&
   value.trim().length >= 1 && value.trim().length <= 32 ? value.trim() : null;
 const requirementText = (text) => text.length > 0 && text.length <= 800 &&
@@ -88,13 +89,21 @@ export function createAgentSetup(store) {
           typeof callback.id !== 'string' || typeof callback.data !== 'string') return null;
       const acknowledge = (notice) => ({ callbackQueryId: callback.id, callbackNotice: notice });
       if (!allowedUserIds.has(id)) return acknowledge('Sift is in private testing.');
-      const match = /^agent:([1-9]\d*):(skip|cancel|approve|edit):(\d+)$/.exec(callback.data);
+      const match = /^agent:([1-9]\d*):(skip|cancel|approve|edit|risk):(\d+)$/.exec(callback.data);
       if (!match || Number(match[1]) !== id) return acknowledge('This button does not belong to your agent.');
       return store.process(update.update_id, () => {
         const state = store.get(id);
         if (state.revision !== Number(match[3])) return acknowledge('This button is out of date. Use /agent for the current rules.');
         const action = match[2];
-        if (action === 'edit') state.draft = blankDraft(state.draft?.pendingRequirements ?? []);
+        if (action === 'risk') {
+          const previous = state.draft ?? state.approved;
+          if (!previous || (state.draft && state.draft.step !== QUESTIONS.length)) return acknowledge('Complete the current setup first.');
+          state.draft = { name:previous.name, step:QUESTIONS.length, pendingRequirements:[],
+            rules:[...previous.rules.filter((r) => !RISK_FIELDS.includes(r.field)), ...TEST_RISK_RULES] };
+        } else if (action === 'edit') {
+          state.draft = { ...blankDraft(state.draft?.pendingRequirements ?? []),
+            rules:(state.draft ?? state.approved)?.rules.filter((r) => RISK_FIELDS.includes(r.field)) ?? [] };
+        }
         else if (action === 'cancel') state.draft = null;
         else if (action === 'skip') {
           if (!state.draft || state.draft.step < 1 || state.draft.step >= 5) return acknowledge('Use /agent to review your current setup.');
@@ -118,6 +127,17 @@ export function createAgentSetup(store) {
     const state = store.get(id);
     const text = update.message.text.trim();
     if (command === 'agent') return view(state, id);
+    if (command === 'riskrules') {
+      const previous = state.draft ?? state.approved;
+      if (!previous || (state.draft && state.draft.step !== QUESTIONS.length)) return { chat_id:id, text:'Finish /setup first, then use /riskrules to review the explicit risk policy.' };
+      return { chat_id:id, text:[
+        'Review replacement of extra instructions',
+        'This replaces ALL unresolved extra instructions below with the three risk rules shown. Your market rules and name are retained. Only continue if this exactly covers your intended extras; otherwise keep the current draft.',
+        'Instructions to replace:\n' + (previous.pendingRequirements.join('\n') || '(none)'),
+        ...TEST_RISK_RULES.map(describeRule),
+        'General bundle coverage remains UNKNOWN, so this full policy cannot currently produce a qualifying match. This button prepares a draft only. Review and Approve rules afterwards; /scan activation stays separate.',
+      ].join('\n\n'), reply_markup:{ inline_keyboard:[[button('Use this risk policy in draft','risk',id,state.revision)]] } };
+    }
     if (!['setup', 'cancel'].includes(command) && (command || !state.draft || text.startsWith('/'))) return null;
     return store.process(update.update_id, () => {
       // Read within the transaction so a retry returns the recorded response.
@@ -140,7 +160,9 @@ export function createAgentSetup(store) {
         }
         if (step === 0) current.draft.name = value;
         else if (step === 5) {
-          if (text.toLowerCase() !== 'none') {
+          if (text.toLowerCase() === 'risk') {
+            current.draft.rules = [...current.draft.rules.filter((r) => !RISK_FIELDS.includes(r.field)), ...TEST_RISK_RULES];
+          } else if (text.toLowerCase() !== 'none') {
             if (current.draft.pendingRequirements.length >= 2) return { chat_id: id, text: 'Two unresolved descriptions are already retained. Use /agent to review, or /cancel to discard the draft and combine your instructions in a new one.' };
             current.draft.pendingRequirements.push(text);
           }
@@ -154,3 +176,4 @@ export function createAgentSetup(store) {
     });
   };
 }
+

@@ -1,4 +1,5 @@
 import { isSolanaAddress } from './market.js';
+import { STREAMFLOW, TOKEN_PROGRAMS, rawAmount, base58Bytes } from './evidence-utils.js';
 
 export const RPC_URL = 'https://api.mainnet-beta.solana.com';
 export class SolanaRpcError extends Error {
@@ -66,7 +67,7 @@ export function createSolanaRpc({ fetchImpl = fetch, now = Date.now } = {}) {
   }
   return {
     async accounts(addresses, { signal, minContextSlot } = {}) {
-      if (!Array.isArray(addresses) || !addresses.length || addresses.length > 4 || !addresses.every(isSolanaAddress) ||
+      if (!Array.isArray(addresses) || !addresses.length || addresses.length > 44 || !addresses.every(isSolanaAddress) ||
           (minContextSlot !== undefined && (!Number.isSafeInteger(minContextSlot) || minContextSlot < 0))) {
         throw new SolanaRpcError('INVALID_REQUEST');
       }
@@ -83,6 +84,47 @@ export function createSolanaRpc({ fetchImpl = fetch, now = Date.now } = {}) {
       }
       return { slot, accounts: result.value };
     },
+    async signatures(address, { signal } = {}) {
+      if (!isSolanaAddress(address)) throw new SolanaRpcError('INVALID_REQUEST');
+      const rows = await request('getSignaturesForAddress', [address, { commitment: 'finalized', limit: 20 }], signal);
+      if (!Array.isArray(rows) || rows.length > 20 || rows.some((r) =>
+        base58Bytes(r?.signature, 64)?.length !== 64 || !Number.isSafeInteger(r.slot) || r.slot < 0 ||
+        !Object.hasOwn(r, 'err') || r.confirmationStatus !== 'finalized') ||
+        new Set(rows.map((r) => r.signature)).size !== rows.length) throw new SolanaRpcError('INVALID_RESPONSE');
+      return rows;
+    },
+    async transaction(signature, { signal } = {}) {
+      if (base58Bytes(signature, 64)?.length !== 64) throw new SolanaRpcError('INVALID_REQUEST');
+      const tx = await request('getTransaction', [signature, { commitment: 'finalized', encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }], signal);
+      if (tx === null) return null;
+      if (!Number.isSafeInteger(tx?.slot) || tx.slot < 0 || !tx.meta || !Object.hasOwn(tx.meta, 'err') ||
+        tx.transaction?.signatures?.[0] !== signature || !Array.isArray(tx.transaction?.message?.accountKeys) ||
+        !Array.isArray(tx.transaction.message.instructions)) throw new SolanaRpcError('INVALID_RESPONSE');
+      return tx;
+    },
+    async tokenAccounts(owner, mint, { signal, minContextSlot = 0 } = {}) {
+      if (![owner, mint].every(isSolanaAddress) || !Number.isSafeInteger(minContextSlot) || minContextSlot < 0) throw new SolanaRpcError('INVALID_REQUEST');
+      const result = await request('getTokenAccountsByOwner', [owner, { mint }, { commitment: 'finalized', encoding: 'jsonParsed', minContextSlot }], signal);
+      if (!Number.isSafeInteger(result?.context?.slot) || result.context.slot < minContextSlot || !Array.isArray(result.value) || result.value.length > 100) throw new SolanaRpcError('INVALID_RESPONSE');
+      const seen = new Set();
+      for (const row of result.value) {
+        const info = row.account?.data?.parsed?.info;
+        if (!isSolanaAddress(row.pubkey) || seen.has(row.pubkey) || row.account.executable !== false ||
+          !TOKEN_PROGRAMS.includes(row.account.owner) ||
+          !['spl-token', 'spl-token-2022'].includes(row.account.data.program) || info?.mint !== mint || info?.owner !== owner ||
+          !['initialized', 'frozen'].includes(info.state) || !rawAmount(info.tokenAmount?.amount)) throw new SolanaRpcError('INVALID_RESPONSE');
+        seen.add(row.pubkey);
+      }
+      return { slot: result.context.slot, accounts: result.value };
+    },
+    async streams(mint, { signal, minContextSlot = 0 } = {}) {
+      if (!isSolanaAddress(mint) || !Number.isSafeInteger(minContextSlot) || minContextSlot < 0) throw new SolanaRpcError('INVALID_REQUEST');
+      const result = await request('getProgramAccounts', [STREAMFLOW, { commitment: 'finalized', encoding: 'base64', withContext: true,
+        minContextSlot, filters: [{ dataSize: 1104 }, { memcmp: { offset: 177, bytes: mint } }] }], signal);
+      if (!Number.isSafeInteger(result?.context?.slot) || result.context.slot < minContextSlot || !Array.isArray(result.value) || result.value.length > 20 ||
+          result.value.some((row) => !isSolanaAddress(row?.pubkey)) || new Set(result.value.map((r) => r.pubkey)).size !== result.value.length) throw new SolanaRpcError('INVALID_RESPONSE');
+      return { slot: result.context.slot, accounts: result.value };
+    },
     async blockTime(slot, { signal } = {}) {
       if (!Number.isSafeInteger(slot) || slot < 0) throw new SolanaRpcError('INVALID_REQUEST');
       const result = await request('getBlockTime', [slot], signal);
@@ -93,3 +135,4 @@ export function createSolanaRpc({ fetchImpl = fetch, now = Date.now } = {}) {
     },
   };
 }
+
