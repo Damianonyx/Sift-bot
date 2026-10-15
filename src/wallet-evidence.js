@@ -4,6 +4,25 @@ import { publicKeyString } from './raydium-liquidity.js';
 import { base58Bytes, instructionIs, instructions, successful, signer, rawAmount, TOKEN_PROGRAMS, txLink, unknown } from './evidence-utils.js';
 
 export const PUMP = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
+export const PUMP_FEE = 'pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ';
+
+function supportedFeeCall(ix, parent, side) {
+  // Pinned Pump fee IDL: read-only get_fees / get_fees_with_quote_mint.
+  // Bind both accounts to this trade, and allow only a direct CPI. Never
+  // whitelist every call to a fee program or arbitrary nested token routes.
+  const configIndex = side === 'sale' ? 19 : 21;
+  if (ix.programId !== PUMP_FEE || ix.stackHeight !== 2 ||
+      parent[configIndex + 1] !== PUMP_FEE || !isSolanaAddress(parent[configIndex]) ||
+      ix.accounts?.length !== 2 || ix.accounts[0] !== parent[configIndex] || ix.accounts[1] !== PUMPSWAP) return false;
+  const bytes = base58Bytes(ix.data);
+  if (!bytes || bytes[8] > 1) return false;
+  if (instructionIs(ix, PUMP_FEE, 'get_fees')) {
+    // Legacy payload predates the final OptionBool wrapper (a single bool).
+    return bytes.length === 33 || bytes.length === 34 && bytes[33] <= 1;
+  }
+  return instructionIs(ix, PUMP_FEE, 'get_fees_with_quote_mint') && bytes.length === 57 &&
+    publicKeyString(bytes.subarray(25, 57)) === parent[4];
+}
 
 export function developerFromCreation(tx, mint) {
   if (!successful(tx)) return null;
@@ -55,7 +74,8 @@ export function pumpSwapTrades(tx, mint, pool = null) {
       !balanceHasOwner(tx,a[7],a[0],mint) || !balanceHasOwner(tx,a[8],a[0],a[4])) return;
     const inner = tx.meta.innerInstructions?.find((g) => g.index === index)?.instructions ?? [];
     // Reject nested unknown calls; prevents attributing unrelated routed flows.
-    if (inner.some((i) => !TOKEN_PROGRAMS.includes(i.programId) && !(i.programId === PUMPSWAP && i.stackHeight === 2))) return;
+    if (inner.some((i) => !TOKEN_PROGRAMS.includes(i.programId) &&
+        !(i.programId === PUMPSWAP && i.stackHeight === 2) && !supportedFeeCall(i, a, side))) return;
     const base = inner.reduce((sum,i) => sum + transferAmount(i, side === 'sale' ? a[5] : a[7], side === 'sale' ? a[7] : a[5], mint),0n);
     const quote = inner.reduce((sum,i) => sum + transferAmount(i, side === 'sale' ? a[8] : a[6], side === 'sale' ? a[6] : a[8], a[4]),0n);
     if (base > 0n && quote > 0n) trades.push({ side, wallet:a[1], pool:a[0], baseAmount:base.toString(), quoteAmount:quote.toString(), instruction:index });

@@ -1,6 +1,7 @@
 import { commandFor } from './bot.js';
 import { RULE_FIELDS, describeRule, assertApprovable } from './rules.js';
 import { TEST_RISK_RULES, RISK_FIELDS } from './risk.js';
+import { descriptionReview } from './description-commands.js';
 
 const QUESTIONS = [
   'Give your agent a name (1–32 characters).',
@@ -10,7 +11,7 @@ const QUESTIONS = [
   'Maximum selected-pool age in minutes. Send require or warn followed by your number of minutes, or tap Skip.\nFormat example only: require 60\nPool creation is not token creation or the start of trading.',
   'Send risk to require 100% selected-pool LP protection, six calendar months remaining on locks (verified burns accepted), a developer who still holds, and exclusion of confirmed bundles/coordinated buys. Partial sales and suspicions are flagged. Unknown required evidence blocks matches. Or send other requirements (up to 800 characters), or none. Other free text stays unresolved. Earlier unresolved instructions are always retained.',
 ];
-const LIMITATIONS = 'Solana · one selected pool. Provider update time is unknown. Risk checks have limited pool, locker, creator and transaction coverage. General bundle coverage is unknown and blocks a required check. No guarantee of safety.\nAI interpretation is not connected. Approval saves rules only; it does not start a scan. Use /scan to review and activate separately.';
+const LIMITATIONS = 'Solana · one selected pool. Provider update time is unknown. Risk checks have limited pool, locker, creator and transaction coverage. General bundle coverage is unknown and blocks a required check. No guarantee of safety.\n/describe prepares rules from a description; optional AI requires operator configuration. Approval saves rules only; it does not start a scan. Use /scan to review and activate separately.';
 const nameOf = (value) => typeof value === 'string' && !/[\p{Cc}\p{Cf}]/u.test(value) &&
   value.trim().length >= 1 && value.trim().length <= 32 ? value.trim() : null;
 const requirementText = (text) => text.length > 0 && text.length <= 800 &&
@@ -45,6 +46,7 @@ function button(text, action, id, revision) {
 }
 
 function view(state, id) {
+  if (state.draft?.interpretation) return descriptionReview(state,id);
   const reply = (text, buttons = []) => ({ chat_id: id, text,
     ...(buttons.length ? { reply_markup: { inline_keyboard: buttons } } : {}) });
   if (state.draft && state.draft.step < QUESTIONS.length) {
@@ -52,7 +54,7 @@ function view(state, id) {
     return reply([
       `Set up your agent · ${step + 1}/${QUESTIONS.length}`,
       QUESTIONS[step],
-      step === 0 ? 'Guided setup is available now; natural-language AI is not connected. Your thresholds will not be guessed.' :
+      step === 0 ? 'Choose your own thresholds. For description-based setup, cancel this draft and use /describe instead.' :
         step < 5 ? 'require = must pass; warn = warning only. USD amounts accept $, commas and k/m suffixes. Examples show the format only; no values are preselected.' : '',
       state.draft.pendingRequirements.length ? 'Your earlier description is retained as unresolved. It cannot be approved by this guided setup.' : '',
       state.approved ? 'Your previously approved rules remain saved while you edit.' : '',
@@ -67,6 +69,7 @@ function view(state, id) {
   try { assertApprovable(agent); } catch (error) { approvalError = error.message; }
   const text = [
     `${state.draft ? 'Review draft' : 'Approved rules'} · ${agent.name}`,
+    agent.sourceDescription ? 'Original description:\n'+agent.sourceDescription : '',
     agent.rules.length ? agent.rules.map(describeRule).join('\n') : 'No conditions selected.',
     agent.pendingRequirements.length ? 'Unresolved instructions (not yet interpreted or checked):\n' + agent.pendingRequirements.join('\n\n') : '',
     'Unknown required results fail. Warning-only failures or unknowns remain visible.',
@@ -111,7 +114,8 @@ export function createAgentSetup(store) {
         } else {
           if (!state.draft || state.draft.step !== QUESTIONS.length) return acknowledge('Complete setup and review the rules first.');
           try { assertApprovable(state.draft); } catch (error) { return acknowledge(error.message); }
-          state.approved = { name: state.draft.name, rules: state.draft.rules, pendingRequirements: [] };
+          state.approved = { name: state.draft.name, rules: state.draft.rules, pendingRequirements: [],
+            ...(state.draft.sourceDescription ? {sourceDescription:state.draft.sourceDescription} : {}) };
           state.draft = null;
         }
         state.revision++;

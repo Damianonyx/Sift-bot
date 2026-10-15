@@ -4,6 +4,8 @@ import { join } from 'node:path';
 import { validateRules, assertApprovable } from './rules.js';
 import { DISCOVERY_SCHEMA, discoveryStore } from './discovery-store.js';
 import { WATCH_SCHEMA, watchStore } from './watch-store.js';
+import { GROUP_SCHEMA, groupStore } from './group-store.js';
+import { validDescription } from './description-data.js';
 
 export class AgentStoreError extends Error {
   constructor() { super('Saved agent data could not be accessed. Sift stopped to preserve existing settings.'); }
@@ -19,6 +21,12 @@ function validateState(state) {
       throw new AgentStoreError();
     }
     validateRules(agent.rules, { requireStrict: false });
+    if (agent.sourceDescription !== undefined && !validDescription(agent.sourceDescription)) throw new AgentStoreError();
+    if (agent.interpretation !== undefined && (kind !== 'draft' || !validDescription(agent.sourceDescription) ||
+        !['Local parser','AI interpretation'].includes(agent.interpretation?.engine) ||
+        !Array.isArray(agent.interpretation.unresolved) || agent.interpretation.unresolved.length>1 ||
+        agent.interpretation.unresolved.some(text=>!validDescription(text)) ||
+        agent.pendingRequirements.length!==1 || agent.pendingRequirements[0]!==agent.sourceDescription)) throw new AgentStoreError();
     if (kind === 'approved') {
       if (!agent.name.trim()) throw new AgentStoreError();
       assertApprovable(agent);
@@ -48,9 +56,11 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
       );
       CREATE TABLE IF NOT EXISTS runtime (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
       INSERT OR IGNORE INTO runtime VALUES ('offset', 0);
+      CREATE TABLE IF NOT EXISTS ai_requests (update_id INTEGER PRIMARY KEY, day TEXT NOT NULL);
     `);
     db.exec(DISCOVERY_SCHEMA);
     db.exec(WATCH_SCHEMA);
+    db.exec(GROUP_SCHEMA);
   } catch { try { db?.close(); } catch {} throw new AgentStoreError(); }
   const safe = (fn) => (...args) => {
     try { return fn(...args); } catch (error) {
@@ -65,6 +75,16 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
   return {
     ...discoveryStore(db, safe),
     ...watchStore(db, safe),
+    ...groupStore(db, safe),
+    aiReserve: safe((updateId, day) => {
+      if (!Number.isSafeInteger(updateId) || updateId<0 || !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new AgentStoreError();
+      db.exec('BEGIN IMMEDIATE');
+      try {
+        const result=db.prepare(`INSERT OR IGNORE INTO ai_requests SELECT ?,? WHERE
+          (SELECT COUNT(*) FROM ai_requests WHERE day=?)<20`).run(updateId,day,day);
+        db.exec('COMMIT');return Boolean(result.changes);
+      } catch(error) {db.exec('ROLLBACK');throw error;}
+    }),
     get: safe((id) => {
       const row = db.prepare('SELECT * FROM agents WHERE user_id = ?').get(userId(id));
       if (!row) return { revision: 0, draft: null, approved: null };
@@ -76,6 +96,7 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
       const previous = db.prepare('SELECT approved FROM agents WHERE user_id=?').get(userId(id));
       if (previous?.approved && previous.approved !== JSON.stringify(state.approved)) {
         db.prepare("UPDATE discovery_scans SET state='paused',issue='RULES_CHANGED' WHERE user_id=? AND state='active'").run(id);
+        db.prepare("UPDATE group_targets SET state='paused',issue='RULES_CHANGED',revision=revision+1 WHERE owner_id=? AND state!='stopped'").run(id);
       }
       db.prepare(`INSERT INTO agents VALUES (?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET revision=excluded.revision, draft=excluded.draft, approved=excluded.approved`)

@@ -1,9 +1,9 @@
 // SYNTHETIC fixtures only. No live token findings or network calls.
 import { createHash } from 'node:crypto';
 import { publicKeyString, publicKeyBytes, TOKEN_PROGRAM, RAYDIUM_V4 } from '../../src/raydium-liquidity.js';
-import { STREAMFLOW, discriminator } from '../../src/evidence-utils.js';
+import { STREAMFLOW, discriminator, base58Bytes } from '../../src/evidence-utils.js';
 import { PUMPSWAP } from '../../src/pumpswap-liquidity.js';
-import { PUMP } from '../../src/wallet-evidence.js';
+import { PUMP, PUMP_FEE } from '../../src/wallet-evidence.js';
 export const NOW = Date.UTC(2026,9,14,12);
 export const address = n => publicKeyString(Buffer.alloc(32,n));
 export const CA=address(1), POOL=address(2), LP=address(3), DEV=address(4), QUOTE=address(5), BV=address(6), QV=address(7), META=address(8);
@@ -60,3 +60,21 @@ export function trade(tx,side='buy',wallet=DEV,n=30) {
   return tx;
 }
 export function burn(signature=sig(2)) {const tx=transaction(signature);tx.transaction.message.instructions=[{programId:TOKEN_PROGRAM,parsed:{type:'burn',info:{mint:LP,amount:'1000'}}}];return tx;}
+
+// Protocol-shaped synthetic CPI, not a captured mainnet transaction.
+export function withFee(tx, variant = 'get_fees') {
+  tx.transaction.message.instructions.forEach((ix, index) => {
+    const side = base58Bytes(ix.data).subarray(0,8).equals(discriminator('sell')) ? 'sale' : 'buy';
+    const configIndex = side === 'sale' ? 19 : 21;
+    while (ix.accounts.length <= configIndex + 1) ix.accounts.push(address(90 + ix.accounts.length));
+    ix.accounts[configIndex + 1] = PUMP_FEE;
+    const args = variant === 'get_fees_with_quote_mint'
+      ? Buffer.concat([Buffer.from([1]), Buffer.alloc(16), publicKeyBytes(QUOTE)])
+      : Buffer.concat([Buffer.from([1]), Buffer.alloc(24), Buffer.from([0])]);
+    tx.meta.innerInstructions.find(g => g.index === index).instructions.unshift({
+      programId:PUMP_FEE, stackHeight:2, accounts:[ix.accounts[configIndex], PUMPSWAP],
+      data:b58(Buffer.concat([discriminator(variant), args])),
+    });
+  });
+  return tx;
+}
