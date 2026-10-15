@@ -14,8 +14,9 @@ A real qualifying discovery alert and the new live monitoring path are pending.
 Risk evidence now has offline coverage for exact LP burns/locks, signing-creator
 holdings, direct sales/transfers, atomic coordinated buys and supplied Jito bundle
 IDs. Read [the precise coverage](risk-evidence.md). General bundle coverage is
-still unknown; the full strategy cannot yet qualify coins. AI interpretation
-and continuous wallet/lock event monitoring remain unavailable. Do not weaken
+still unknown; the full strategy cannot yet qualify coins. Local description
+parsing and an optional, disabled-by-default AI adapter are implemented. Continuous
+wallet/lock event monitoring remains unavailable. Do not weaken
 required checks to manufacture an alert.
 
 ## Owner acceptance before invitations
@@ -26,7 +27,7 @@ required checks to manufacture an alert.
 
    ```sh
    git fetch origin &&
-   git switch codex/risk-verification &&
+   git switch codex/agent-group-discovery &&
    npm test &&
    npm run preflight &&
    npm start
@@ -48,9 +49,12 @@ required checks to manufacture an alert.
 7. Validate discovery using a tester's explicitly approved supported rules;
    reconcile the CA, source pool, selected pool, metrics and reasons. No match
    during observation is a valid result, not a reason to silently relax rules.
-8. Test an unlisted account and a group. They must not fetch token data, read
-   private rules or operate another user's controls. `/id` remains available
-   privately so invited testers can obtain their own IDs.
+8. Test an unlisted account and an unconfigured group. They must not fetch token
+   data, read private rules or operate another user's controls. Then follow the
+   [group setup flow](agent-discovery.md#enable-a-group-destination): verify explicit
+   private disclosure/enablement, future alerts, demotion, stop, rule changes and
+   restart without duplicate posting. Any verified group admin must be able to stop
+   sharing. `/id` remains available privately for invited testers.
 
 9. Run `/liquidity <CA>` and `/risk <CA>` against independently known examples:
    verified burn; full long-duration lock; one-second-short/partial/cancelable
@@ -63,6 +67,11 @@ required checks to manufacture an alert.
 11. Record source denial/rate limits, stale data and cooldown outcomes. Every
     required unknown must be visible and must suppress matching alerts. Confirm
     reports fit mobile and do not claim “never sold” or “bundle-free”.
+12. Test `/describe` with explicit thresholds, conflicting or ambiguous wording,
+    and the owner's full risk request. Compare the original to the proposed rules.
+    Unsupported extras must remain unresolved. Confirm interpretation review,
+    rule approval and scan activation are separate. Optional AI remains disabled
+    unless separately configured; synthetic model tests are not live validation.
 
 Live evidence has not been validated here. This private build can test the
 implemented decisions and unknown behavior, but the full strategy/public release
@@ -108,6 +117,19 @@ approved rule, expected result, actual result, source evidence, delivery delay,
 duplicate/missed/unavailable status and tester feedback. Preserve irrelevant
 alerts, failed/uncertain deliveries and unsuccessful outcomes too. Relevance and
 accuracy must not be judged only by tokens whose prices later rise.
+
+The owner's evaluation questions should be measured separately:
+
+| Question | Evidence to record |
+| --- | --- |
+| Did testers catch coins early? | Feed first-observed time, alert delivery time, selected-pool age and entry time; pool age is not token age |
+| Were their trades profitable? | Optional tester-reported actual entries/exits, position sizes, fees and slippage; keep realised results separate from hypothetical later prices |
+| Did they buy into rugs? | Verified event evidence and the warnings/unknowns shown before entry; a USD liquidity decline alone does not prove a rug |
+| What is Sift's rating? | A 1–5 overall rating plus relevance, timeliness, clarity and reliability, with the number of testers and missing responses |
+
+This build does not connect wallets or automatically calculate trader profits.
+Keep unsuccessful trades and no-trade outcomes in the sample. A profitable week
+alone is not evidence that safety checks work or grounds for automatic public release.
 
 Private bot histories are `/alerts` and `/watchalerts`; each displays its latest
 five reports, while older records remain in the local database. Back up that

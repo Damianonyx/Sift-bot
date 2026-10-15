@@ -23,7 +23,7 @@ export function formatDiscoveryAlert(agent, snapshot, feed) {
   ].join('\n\n');
 }
 
-export function createDiscoveryRunner({ feed, market, agents, risk, call, allowedUserIds, now = Date.now, wait = delay }) {
+export function createDiscoveryRunner({ feed, market, agents, risk, groups, call, allowedUserIds, now = Date.now, wait = delay }) {
   let nextDeliveryAt = 0;
   function current(id, key) {
     if (!allowedUserIds.has(id)) return null;
@@ -41,6 +41,7 @@ export function createDiscoveryRunner({ feed, market, agents, risk, call, allowe
   }
 
   async function cycle({ signal } = {}) {
+    groups?.beginCycle();
     const scans = agents.discoveryActive().filter((scan) => current(scan.user_id, scan.criteria_key));
     if (!scans.length || signal?.aborted) return;
     const stats = new Map(scans.map((scan) => [scan.user_id, { checked: 0, matched: 0, suppressed: 0, issue: null, sent: 0 }]));
@@ -122,6 +123,7 @@ export function createDiscoveryRunner({ feed, market, agents, risk, call, allowe
           if (error instanceof TelegramError && error.code === 403) agents.discoverySet(id, 'paused', scan.criteria_key, 'CHAT_UNAVAILABLE');
           // No blind retry after an ambiguous send. The saved report is in /alerts.
         }
+        if (now() >= nextDeliveryAt) await groups?.deliver(id, scan.criteria_key, candidate.address, text, { signal });
       }
     }
     finish();

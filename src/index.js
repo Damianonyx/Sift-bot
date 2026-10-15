@@ -11,6 +11,9 @@ import { createRiskData } from './risk.js';
 import { createLiquidityData } from './liquidity.js';
 import { createSolanaRpc } from './solana-rpc.js';
 import { createBundleData } from './bundle-evidence.js';
+import { createGroups } from './groups.js';
+import { createDescriptionInterpreter, readAiConfig } from './description-ai.js';
+import { createDescriptionCommands } from './description-commands.js';
 
 const shutdown = new AbortController();
 for (const event of ['SIGINT', 'SIGTERM']) {
@@ -19,6 +22,7 @@ for (const event of ['SIGINT', 'SIGTERM']) {
 
 async function main() {
   const { token, allowedUserIds } = readConfig(process.env);
+  const aiConfig = readAiConfig(process.env);
   const call = createTelegram(token);
   const runtimeStop = new AbortController();
   const signal = AbortSignal.any([shutdown.signal, runtimeStop.signal]);
@@ -32,8 +36,11 @@ async function main() {
   const liquidity = createLiquidityData({ rpc });
   const risk = createRiskData({ rpc, liquidity });
   const bundles = createBundleData({ rpc });
-  const respond = createResponder({ agents, market, feed, liquidity, risk, bundles });
-  const discovery = createDiscoveryRunner({ agents, market, feed, risk, call, allowedUserIds });
+  const groups = createGroups({ agents, call, botId:identity.id, allowedUserIds });
+  const interpreter = createDescriptionInterpreter({ ...aiConfig, agents });
+  const descriptionCommands = createDescriptionCommands({ agents, interpreter });
+  const respond = createResponder({ agents, market, feed, liquidity, risk, bundles, groups, descriptionCommands, aiEnabled:aiConfig.enabled });
+  const discovery = createDiscoveryRunner({ agents, market, feed, risk, groups, call, allowedUserIds });
   const monitoring = createWatchRunner({ agents, market, call, allowedUserIds });
   console.log('Sift private test bot is running. Discovery requires approved supported rules and explicit activation.');
   if (allowedUserIds.size === 0) console.log('No testers configured. Only /id lookup is available.');
