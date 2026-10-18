@@ -1,3 +1,5 @@
+![Sift Agent — Sift through the noise. Find your signal.](assets/sift-banner.jpg)
+
 # Sift
 
 **Your personal agent in the trenches.**
