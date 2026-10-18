@@ -9,6 +9,7 @@ import { SolanaRpcError } from './solana-rpc.js';
 import { createWatchCommands, watchSummary } from './watch-commands.js';
 import { createRiskData, attachRisk, needsRisk, formatRiskReport } from './risk.js';
 import { createBundleData, isBundleId } from './bundle-evidence.js';
+import { formatSourceHealth } from './candidate-sources.js';
 
 export function createResponder({ market = createMarketData(), agents, feed, groups, descriptionCommands, aiEnabled = false, liquidity = createLiquidityData(), risk = createRiskData({ liquidity }), bundles = createBundleData(), now = Date.now, wait } = {}) {
   const agentSetup = agents ? createAgentSetup(agents) : null;
@@ -47,7 +48,8 @@ export function createResponder({ market = createMarketData(), agents, feed, gro
         if (feed) {
           response.text += '\n\n' + scanSummary(agents, context.userId);
           const status = feed.status();
-          response.text += `\nCandidate feed: ${status.state === 'responded' ? 'last request succeeded' : status.state === 'unavailable' ? 'last request failed' : 'not checked this session'}. Use /sources to check access.`;
+          response.text += status.sources ? '\n\n' + formatSourceHealth(status.sources) + '\nUse /sources to check access.' :
+            `\nCandidate feed: ${status.state === 'responded' ? 'last request succeeded' : status.state === 'unavailable' ? 'last request failed' : 'not checked this session'}. Use /sources to check access.`;
         }
       }
       return response;

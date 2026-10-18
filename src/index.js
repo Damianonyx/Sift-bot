@@ -5,6 +5,10 @@ import { openAgentStore } from './agent-store.js';
 import { runPolling } from './polling.js';
 import { createMarketData } from './market.js';
 import { createDiscoveryFeed } from './discovery-feed.js';
+import { createPumpFeed, readPumpConfig } from './pump-feed.js';
+import { createCandidateSources } from './candidate-sources.js';
+import { criteriaKey } from './discovery-store.js';
+import { assertApprovable } from './rules.js';
 import { createDiscoveryRunner } from './discovery.js';
 import { createWatchRunner } from './watch.js';
 import { createRiskData } from './risk.js';
@@ -23,6 +27,7 @@ for (const event of ['SIGINT', 'SIGTERM']) {
 async function main() {
   const { token, allowedUserIds } = readConfig(process.env);
   const aiConfig = readAiConfig(process.env);
+  const pumpConfig = readPumpConfig(process.env);
   const call = createTelegram(token);
   const runtimeStop = new AbortController();
   const signal = AbortSignal.any([shutdown.signal, runtimeStop.signal]);
@@ -31,7 +36,7 @@ async function main() {
   verifyBot(identity, webhook);
   const agents = openAgentStore();
   const market = createMarketData();
-  const feed = createDiscoveryFeed();
+  const feed = createCandidateSources({ gecko: createDiscoveryFeed(), pump: createPumpFeed(pumpConfig) });
   const rpc = createSolanaRpc();
   const liquidity = createLiquidityData({ rpc });
   const risk = createRiskData({ rpc, liquidity });
@@ -45,10 +50,18 @@ async function main() {
   console.log('Sift private test bot is running. Discovery requires approved supported rules and explicit activation.');
   if (allowedUserIds.size === 0) console.log('No testers configured. Only /id lookup is available.');
 
-  const tasks = [runPolling({ call, respond, agents, allowedUserIds, signal }), discovery.run({ signal, beforeCycle: monitoring.cycle })];
+  const shouldListen = () => agents.discoveryActive().some((scan) => {
+    if (!allowedUserIds.has(scan.user_id)) return false;
+    const approved = agents.get(scan.user_id).approved;
+    try { assertApprovable(approved); return criteriaKey(approved) === scan.criteria_key; }
+    catch { return false; }
+  });
+  const tasks = [runPolling({ call, respond, agents, allowedUserIds, signal }),
+    feed.run({ signal, shouldListen }), discovery.run({ signal, beforeCycle: monitoring.cycle })];
   try { await Promise.all(tasks); }
   finally {
     runtimeStop.abort();
+    feed.close();
     await Promise.allSettled(tasks);
     agents.close();
   }

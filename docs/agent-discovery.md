@@ -4,6 +4,10 @@ Sift's intended flow is to understand your criteria, find matching Solana coins,
 and send their contract addresses with reasons, evidence and warnings. Matching
 screening rules does not establish that a coin is safe or will be profitable.
 
+Candidate sources now include Pump.fun launches and migrations through PumpPortal,
+alongside GeckoTerminal new pools. See [Pump.fun discovery](pumpfun-discovery.md)
+for source settings, indexing delays, queue limits and verification status.
+
 ## Start with a description
 
 Send this privately as a format example, using your own thresholds:
