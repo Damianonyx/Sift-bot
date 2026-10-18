@@ -6,3 +6,5 @@ coverage/
 *.log
 .DS_Store
 .sift/
+
+source-audit-results.json

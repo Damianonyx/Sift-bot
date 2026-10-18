@@ -48,6 +48,7 @@ export function normalisePairs(raw, address, fetchedAt, poolAddress = null) {
       address: pair.pairAddress,
       name: label(pair.baseToken.name), symbol: label(pair.baseToken.symbol),
       quoteSymbol: label(pair.quoteToken?.symbol), dex: label(pair.dexId),
+      quoteAddress: isSolanaAddress(pair.quoteToken?.address) ? pair.quoteToken.address : null,
       priceUsd: price(pair.priceUsd), marketCap: metric(pair.marketCap), fdv: metric(pair.fdv),
       liquidityUsd: metric(pair.liquidity?.usd), createdAt,
       windows: ['m5', 'h1', 'h24'].map((window) => ({

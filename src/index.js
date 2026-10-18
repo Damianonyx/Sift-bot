@@ -7,6 +7,8 @@ import { createMarketData } from './market.js';
 import { createDiscoveryFeed } from './discovery-feed.js';
 import { createPumpFeed, readPumpConfig } from './pump-feed.js';
 import { createCandidateSources } from './candidate-sources.js';
+import { createMeteora, readMeteoraConfig } from './meteora.js';
+import { createSourceAudit } from './source-audit.js';
 import { criteriaKey } from './discovery-store.js';
 import { assertApprovable } from './rules.js';
 import { createDiscoveryRunner } from './discovery.js';
@@ -28,6 +30,7 @@ async function main() {
   const { token, allowedUserIds } = readConfig(process.env);
   const aiConfig = readAiConfig(process.env);
   const pumpConfig = readPumpConfig(process.env);
+  const meteoraConfig = readMeteoraConfig(process.env);
   const call = createTelegram(token);
   const runtimeStop = new AbortController();
   const signal = AbortSignal.any([shutdown.signal, runtimeStop.signal]);
@@ -36,7 +39,9 @@ async function main() {
   verifyBot(identity, webhook);
   const agents = openAgentStore();
   const market = createMarketData();
-  const feed = createCandidateSources({ gecko: createDiscoveryFeed(), pump: createPumpFeed(pumpConfig) });
+  const meteora = createMeteora(meteoraConfig);
+  const feed = createCandidateSources({ gecko: createDiscoveryFeed(), pump: createPumpFeed(pumpConfig), meteora });
+  const audit = createSourceAudit({ meteora });
   const rpc = createSolanaRpc();
   const liquidity = createLiquidityData({ rpc });
   const risk = createRiskData({ rpc, liquidity });
@@ -44,7 +49,7 @@ async function main() {
   const groups = createGroups({ agents, call, botId:identity.id, allowedUserIds });
   const interpreter = createDescriptionInterpreter({ ...aiConfig, agents });
   const descriptionCommands = createDescriptionCommands({ agents, interpreter });
-  const respond = createResponder({ agents, market, feed, liquidity, risk, bundles, groups, descriptionCommands, aiEnabled:aiConfig.enabled });
+  const respond = createResponder({ agents, market, feed, liquidity, risk, bundles, groups, audit, descriptionCommands, aiEnabled:aiConfig.enabled });
   const discovery = createDiscoveryRunner({ agents, market, feed, risk, groups, call, allowedUserIds });
   const monitoring = createWatchRunner({ agents, market, call, allowedUserIds });
   console.log('Sift private test bot is running. Discovery requires approved supported rules and explicit activation.');

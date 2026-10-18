@@ -1,0 +1,28 @@
+name: Public source comparison
+on:
+  workflow_dispatch:
+  push:
+    branches: [codex/live-discovery-check]
+    paths: [.github/workflows/source-audit.yml]
+permissions:
+  contents: read
+concurrency:
+  group: public-source-comparison
+  cancel-in-progress: false
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Compare bounded public samples (no secrets or paid APIs)
+        run: npm run check:sources
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: source-comparison
+          path: source-audit-results.json
+          if-no-files-found: ignore

@@ -11,8 +11,9 @@ import { createRiskData, attachRisk, needsRisk, formatRiskReport } from './risk.
 import { createBundleData, isBundleId } from './bundle-evidence.js';
 import { formatSourceHealth } from './candidate-sources.js';
 import { withCopyableCAs } from './telegram-format.js';
+import { createSourceAudit, formatSourceAudit } from './source-audit.js';
 
-export function createResponder({ market = createMarketData(), agents, feed, groups, descriptionCommands, aiEnabled = false, liquidity = createLiquidityData(), risk = createRiskData({ liquidity }), bundles = createBundleData(), now = Date.now, wait } = {}) {
+export function createResponder({ market = createMarketData(), agents, feed, groups, descriptionCommands, aiEnabled = false, liquidity = createLiquidityData(), risk = createRiskData({ liquidity }), bundles = createBundleData(), audit = createSourceAudit(), now = Date.now, wait } = {}) {
   const agentSetup = agents ? createAgentSetup(agents) : null;
   const scanCommands = agents && feed ? createScanCommands({ agents, feed }) : null;
   const watchCommands = agents ? createWatchCommands({ agents, market, now, wait }) : null;
@@ -55,7 +56,7 @@ export function createResponder({ market = createMarketData(), agents, feed, gro
       }
       return response;
     }
-    if (!['check', 'liquidity', 'risk', 'bundle'].includes(context.command)) return replyFor(update, allowedUserIds);
+    if (!['check', 'liquidity', 'risk', 'bundle', 'verify'].includes(context.command)) return replyFor(update, allowedUserIds);
     const reply = (text) => withCopyableCAs({ chat_id: context.chatId, text,
       link_preview_options: { is_disabled: true } }, [context.args]);
     let bundleId;
@@ -78,6 +79,14 @@ export function createResponder({ market = createMarketData(), agents, feed, gro
         return reply(`Market checks are temporarily limited. Try again in ${error.retryAfter} seconds.\nNo token assessment was made.`);
       }
       return reply('DEX Screener data is unavailable or could not be read. No token assessment was made.\n\nTry /check again later. Missing data does not count as a passed check.');
+    }
+    if (context.command === 'verify') {
+      try {
+        const report = await audit.check(snapshot, { signal });
+        return signal?.aborted ? null : reply(formatSourceAudit(report));
+      } catch {
+        return signal?.aborted ? null : reply('Source comparison is unavailable or temporarily limited. Wait at least 20 seconds before retrying; provider limits may last longer. No accuracy verdict was made. Your rules and scans are unchanged.');
+      }
     }
     if(context.command==='bundle') {
       const evidence=await bundles.check(snapshot,bundleId,{signal});

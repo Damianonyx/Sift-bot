@@ -4,12 +4,14 @@
   "private": true,
   "type": "module",
   "description": "Sift's private Telegram bot with discovery, saved criteria and fixed-pool market monitoring.",
-  "engines": { "node": ">=24 <25" },
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
     "test": "node --test --test-isolation=none test/*.test.js",
     "preflight": "node --env-file-if-exists=.env scripts/preflight.js",
-    "check:live": "node --use-env-proxy --env-file-if-exists=.env scripts/live-check.js"
+    "check:live": "node --use-env-proxy --env-file-if-exists=.env scripts/live-check.js",
+    "check:sources": "node --use-env-proxy scripts/source-audit.js"
   }
 }
-
