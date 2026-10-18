@@ -5,8 +5,9 @@
 Sift is a private Telegram bot for personalised Solana memecoin discovery and
 monitoring: [@SiftAgentbot](https://t.me/SiftAgentbot).
 
-This branch continues `codex/market-monitoring` from commit `4ed37ce`. It adds
-limited liquidity protection, developer activity and buying-pattern evidence.
+This build continues `codex/agent-group-discovery` from commit `cace4930`, adding
+Pump.fun launch/migration candidates via PumpPortal to the existing description,
+risk-evidence and admin-controlled group discovery flows.
 **Unknown required checks never qualify a coin. General bundle coverage remains
 unknown, so the owner's complete risk policy cannot yet produce matching alerts.**
 The website redesign and public release remain deferred.
@@ -16,7 +17,10 @@ The website redesign and public release remain deferred.
 - DEX Screener market snapshots with one selected pool, retrieval times, unknown
   metrics and evidence links. Market cap is never replaced by FDV.
 - Guided criteria, drafts, explicit review/approval and local SQLite persistence.
-- Bounded GeckoTerminal discovery; explicit activation, private reports, delivery
+- `/describe` turns supported descriptions into a draft with the original text
+  retained. Optional OpenAI interpretation is disabled by default.
+- Bounded GeckoTerminal and Pump.fun discovery (PumpPortal launch/migration events);
+  explicit activation, private reports, delivery
   records, pause/resume/stop, dismissal and mute controls.
 - Fixed-pool USD-liquidity monitoring with captured market rules and controls.
 - LP burn verification for supported Raydium/PumpSwap accounts; narrow fixed-cliff
@@ -24,8 +28,10 @@ The website redesign and public release remain deferred.
 - Classic Pump signing-creator attribution, current holdings, direct PumpSwap
   sales, separate transfers, confirmed atomic coordinated buys and same-slot flags.
 - Read-only verification of a supplied Jito bundle ID against finalized on-chain buys.
+- Group admins configure privately, connect a destination in their group, then
+  explicitly approve sharing future matches. Access is rechecked before posting.
 
-These additions have **124 passing offline tests** on Node.js 24.19.0. Fixtures
+The automated checks run on Node.js 24.19.0. Fixtures
 are synthetic; tests contact no providers or Telegram. Live source accuracy,
 new risk commands and end-to-end alert behavior still require owner acceptance.
 Earlier owner screenshots verified Telegram welcome/check replies and discovery
@@ -38,8 +44,9 @@ feed access; they did not verify these new risk claims or continuous hosting.
 | `/start`, `/help`, `/status` | Welcome, commands and actual service/user state |
 | `/id` | Own Telegram ID, in a private chat only |
 | `/setup` | Guided market criteria; send `risk` at the final question to add the explicit risk policy |
-| `/setup <description>` | Save free text as unresolved; no AI guessing |
+| `/describe <description>`, `/setup <description>` | Prepare a description for review; unresolved instructions block approval |
 | `/agent`, `/cancel` | Review criteria or discard a draft |
+| `/groups` | Review, enable or stop group destinations privately |
 | `/riskrules` | Review replacement of existing extra instructions with the explicit risk policy |
 | `/check <CA>` | Market snapshot and approved-rule evaluation |
 | `/liquidity <CA>` | Selected-pool LP protection evidence |
@@ -51,6 +58,12 @@ feed access; they did not verify these new risk claims or continuous hosting.
 | `/pause`, `/stop` | Pause/stop discovery and all your market monitors |
 | `/resume` | Resume discovery; resume individual monitors in `/watchlist` |
 | `/alerts`, `/unmute <CA>` | Saved discovery reports and token unmute |
+
+Start with the [description and group setup guide](docs/agent-discovery.md).
+See [Pump.fun scouting and its coverage limits](docs/pumpfun-discovery.md).
+In groups, `/group@SiftAgentbot connect` prepares a connection and
+`/group@SiftAgentbot stop` stops sharing. Sift and the connecting tester must be
+group admins. Other group messages are ignored; adding the bot starts nothing.
 
 Risk rules require **100% selected-pool LP protection**, accept verified LP burns,
 and require six **UTC calendar months remaining** on accepted locks (day clamped
@@ -93,7 +106,8 @@ to the allowlist and restart. Test-week preflight requires at least one tester.
 Run exactly one polling process. Startup verifies @SiftAgentbot and refuses to
 poll over an existing webhook; it never removes that webhook automatically.
 Telegram polling conflicts stop the process. Unlisted users cannot use evidence
-commands or background work; groups receive no replies. Access remains private.
+commands or background work. Group configuration is limited to verified admins;
+other group traffic cannot read private settings. Access remains private.
 The existing source repository is public; the bot's allowlist controls bot access.
 
 ## One week before any public release
@@ -104,22 +118,32 @@ started and no public release is automatic. General bundle coverage, live risk
 evidence, complete full-strategy discovery and continuous hosting remain open
 release requirements. Do not relax thresholds to manufacture a match.
 
-The external-service budget stays **$0**. No API key, paid fallback, AI service,
-wallet connection, trade execution or hosting purchase is added. Codespaces is
+The default build makes **no paid AI calls**. Local description parsing and the
+existing public data sources require no new paid subscription. Optional AI is
+off unless an operator explicitly sets `SIFT_AI_ENABLED=true`, `OPENAI_API_KEY`
+and `SIFT_AI_MODEL`. API usage is separately billed; ChatGPT/Codex credits do not
+fund it. See the [limits and configuration](docs/agent-discovery.md#optional-ai-interpretation).
+No paid service was activated, and no hosting purchase was made. Codespaces is
 temporary and consumes existing compute/storage allowances. The bot only works
 while its process runs; a calendar week is not a claim of seven-day uptime.
 
 ## Storage and operating limits
 
 Local `.sift/agents.sqlite` stores per-user criteria, drafts, polling receipts,
-scan/watch state, evaluations, mutes and saved delivery reports. Its directory
+scan/watch state, evaluations, mutes, group destinations/delivery records and AI
+request reservations. Original descriptions may be saved with criteria. Its directory
 and database use restrictive permissions; the database is not encrypted. Keep
 `.sift/` and WAL/SHM files private and back up with the bot stopped. Restarting
 with the same database preserves state; deleting the runtime/database loses it.
 Corrupt state stops the bot rather than replacing user settings.
 
-Discovery checks at most 20 candidates from the first new-pools feed page per
-cycle. Market checks share a three-second cooldown; the feed has a one-minute
+Discovery checks at most 20 distinct candidates per cycle, interleaving the first
+GeckoTerminal new-pools page with a bounded Pump.fun event queue. PumpPortal's
+free launch/migration subscriptions are enabled by default; no key or wallet is
+used. The stream connects only for approved active scans or short `/sources`
+diagnostics. It retains at most 200 candidates for 20 minutes in memory, rotating
+attempted candidates for indexing retries. Dropped events and gaps remain visible.
+Market checks share a three-second cooldown; GeckoTerminal has a one-minute
 cache. Risk checks have a one-minute cooldown and a 45-second deadline, so not
 all candidates receive chain evidence. Unknown/limited evidence cannot match.
 Source limits and slow calls extend cycle times; there is no downtime catch-up.
@@ -131,6 +155,12 @@ twenty process-wide, and three attempted alerts per user per cycle. Each monitor
 condition reports once; repeat events may not re-alert. Extra reports are saved
 as suppressed. This is not exactly-once delivery or a complete observation time
 series. Retention/deletion and continuous hosting remain future work.
+
+Group posting permits three destinations per tester and three attempts per
+destination per cycle. Each destination/rule set/token is attempted once; a
+restart or reconnect does not replay prior alerts. Group errors are visible in
+`/groups`. Pausing a private scan prevents group posts. Approved-rule changes
+pause group destinations until the admin reconnects and reviews them again.
 
 A USD liquidity fall may reflect prices or balances; it is not proof of removal,
 a broken lock or developer selling. Matching criteria never establishes safety

@@ -9,12 +9,17 @@ import { SolanaRpcError } from './solana-rpc.js';
 import { createWatchCommands, watchSummary } from './watch-commands.js';
 import { createRiskData, attachRisk, needsRisk, formatRiskReport } from './risk.js';
 import { createBundleData, isBundleId } from './bundle-evidence.js';
+import { formatSourceHealth } from './candidate-sources.js';
 
-export function createResponder({ market = createMarketData(), agents, feed, liquidity = createLiquidityData(), risk = createRiskData({ liquidity }), bundles = createBundleData(), now = Date.now, wait } = {}) {
+export function createResponder({ market = createMarketData(), agents, feed, groups, descriptionCommands, aiEnabled = false, liquidity = createLiquidityData(), risk = createRiskData({ liquidity }), bundles = createBundleData(), now = Date.now, wait } = {}) {
   const agentSetup = agents ? createAgentSetup(agents) : null;
   const scanCommands = agents && feed ? createScanCommands({ agents, feed }) : null;
   const watchCommands = agents ? createWatchCommands({ agents, market, now, wait }) : null;
   return async (update, allowedUserIds, signal) => {
+    const groupReply = await groups?.respond(update, signal);
+    if (groupReply) return groupReply;
+    const descriptionReply = await descriptionCommands?.(update, allowedUserIds, signal);
+    if (descriptionReply) return descriptionReply;
     const watchReply = await watchCommands?.(update, allowedUserIds, signal);
     if (watchReply) return watchReply;
     const scanReply = await scanCommands?.(update, allowedUserIds, signal);
@@ -26,6 +31,7 @@ export function createResponder({ market = createMarketData(), agents, feed, liq
     if (!context || !allowedUserIds.has(context.userId)) return replyFor(update, allowedUserIds);
     if (context.command === 'status') {
       const response = replyFor(update, allowedUserIds);
+      response.text += `\n\nDescription parser: local rules available. AI interpretation: ${aiEnabled ? 'configured; bounded API calls on unresolved descriptions' : 'disabled; no AI API calls'}.`;
       const health = market.status();
       const states = { not_checked: 'not checked this session', responded: 'last request succeeded', unavailable: 'last request failed; market data may be unavailable' };
       response.text += `\n\nDEX Screener: ${states[health.state]}.`;
@@ -42,7 +48,8 @@ export function createResponder({ market = createMarketData(), agents, feed, liq
         if (feed) {
           response.text += '\n\n' + scanSummary(agents, context.userId);
           const status = feed.status();
-          response.text += `\nCandidate feed: ${status.state === 'responded' ? 'last request succeeded' : status.state === 'unavailable' ? 'last request failed' : 'not checked this session'}. Use /sources to check access.`;
+          response.text += status.sources ? '\n\n' + formatSourceHealth(status.sources) + '\nUse /sources to check access.' :
+            `\nCandidate feed: ${status.state === 'responded' ? 'last request succeeded' : status.state === 'unavailable' ? 'last request failed' : 'not checked this session'}. Use /sources to check access.`;
         }
       }
       return response;

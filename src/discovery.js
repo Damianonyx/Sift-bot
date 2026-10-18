@@ -6,24 +6,25 @@ import { MarketDataError } from './market.js';
 import { AgentStoreError } from './agent-store.js';
 import { TelegramError } from './telegram.js';
 import { attachRisk, needsRisk, RISK_FIELDS, formatRiskReport } from './risk.js';
+import { CANDIDATE_LIMIT, DISCOVERY_COVERAGE, formatCandidateSource } from './candidate-sources.js';
 
-export const MAX_CANDIDATES = 20;
+export const MAX_CANDIDATES = CANDIDATE_LIMIT;
 export const ALERT_LIMIT = 3;
 export const SCAN_INTERVAL_MS = 60_000;
-export const DISCOVERY_COVERAGE = 'Solana · GeckoTerminal new-pools first page only; up to 20 base-token candidates per cycle. DEX Screener selects the pool used for your market checks. New/unindexed venues and quote-only tokens may be missed. Provider update time is unknown.';
+export { DISCOVERY_COVERAGE };
 
-export function formatDiscoveryAlert(agent, snapshot, feed) {
+export function formatDiscoveryAlert(agent, snapshot, feed, candidate) {
   return [
     `Discovery match · ${agent.name}`,
     formatTokenReport(snapshot, { hasApprovedRules: true, discovery: true }),
     formatRuleEvaluation(agent, snapshot, { discovery: true }),
-    `Candidate source: ${feed.sourceUrl}\nFeed fetched: ${new Date(feed.fetchedAt).toISOString()}${feed.cached ? ' (Sift feed cache)' : ''}`,
+    formatCandidateSource(candidate, feed),
     snapshot.risk ? formatRiskReport(snapshot.risk,{ compact:true }) : 'Only your approved market checks determined this match. Risk checks were not requested.',
     'Use /risk <CA> for detailed risk evidence. Monitor sets up market monitoring.',
   ].join('\n\n');
 }
 
-export function createDiscoveryRunner({ feed, market, agents, risk, call, allowedUserIds, now = Date.now, wait = delay }) {
+export function createDiscoveryRunner({ feed, market, agents, risk, groups, call, allowedUserIds, now = Date.now, wait = delay }) {
   let nextDeliveryAt = 0;
   function current(id, key) {
     if (!allowedUserIds.has(id)) return null;
@@ -41,6 +42,7 @@ export function createDiscoveryRunner({ feed, market, agents, risk, call, allowe
   }
 
   async function cycle({ signal } = {}) {
+    groups?.beginCycle();
     const scans = agents.discoveryActive().filter((scan) => current(scan.user_id, scan.criteria_key));
     if (!scans.length || signal?.aborted) return;
     const stats = new Map(scans.map((scan) => [scan.user_id, { checked: 0, matched: 0, suppressed: 0, issue: null, sent: 0 }]));
@@ -55,12 +57,13 @@ export function createDiscoveryRunner({ feed, market, agents, risk, call, allowe
       finish();
       return;
     }
-    if (batch.invalidPools || batch.candidates.length > MAX_CANDIDATES) {
+    if (batch.partial || batch.invalidPools || batch.candidates.length > MAX_CANDIDATES) {
       for (const stat of stats.values()) stat.issue = 'PARTIAL_COVERAGE';
     }
     for (const candidate of batch.candidates.slice(0, MAX_CANDIDATES)) {
       if (signal?.aborted) return;
       if (!scans.some((scan) => current(scan.user_id, scan.criteria_key))) break;
+      feed.selected?.([candidate]);
       let snapshot;
       try {
         try { snapshot = await market.check(candidate.address, { signal }); }
@@ -94,13 +97,14 @@ export function createDiscoveryRunner({ feed, market, agents, risk, call, allowe
         const result = evaluateAgent(approved, snapshot,{ now:now() });
         if (result.checks.some((r) => RISK_FIELDS.includes(r.field) && r.state === 'unknown')) stat.issue = 'RISK_UNKNOWN';
         stat.checked++;
+        if (!snapshot.selected) stat.issue = 'MARKET_NOT_INDEXED';
         agents.discoveryRecord(id, scan.criteria_key, candidate.address, snapshot.fetchedAt, result);
         if (!result.matches) continue;
         stat.matched++;
         if (agents.discoverySeen(id, scan.criteria_key, candidate.address)) continue;
         if (agents.discoveryMuted(id, candidate.address) || stat.sent >= ALERT_LIMIT) { stat.suppressed++; continue; }
         if (now() < nextDeliveryAt) { stat.suppressed++; stat.issue = 'DELIVERY_LIMITED'; continue; }
-        const text = formatDiscoveryAlert(approved, snapshot, batch);
+        const text = formatDiscoveryAlert(approved, snapshot, batch, candidate);
         if (text.length > 4000) { stat.issue = 'REPORT_TOO_LONG'; continue; } // leave room for /alerts history header
         const eventId = agents.discoveryReserve(id, scan.criteria_key, candidate.address, now(), { text });
         if (eventId === null) continue;
@@ -122,6 +126,7 @@ export function createDiscoveryRunner({ feed, market, agents, risk, call, allowe
           if (error instanceof TelegramError && error.code === 403) agents.discoverySet(id, 'paused', scan.criteria_key, 'CHAT_UNAVAILABLE');
           // No blind retry after an ambiguous send. The saved report is in /alerts.
         }
+        if (now() >= nextDeliveryAt) await groups?.deliver(id, scan.criteria_key, candidate.address, text, { signal });
       }
     }
     finish();

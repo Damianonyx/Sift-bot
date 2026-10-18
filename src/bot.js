@@ -3,20 +3,21 @@ export const BOT_USERNAME = 'SiftAgentbot';
 export const WELCOME = [
   'Sift — Your personal agent in the trenches.',
   'Sift is being built to find coins that fit your criteria and send their CAs with reasons. Personalised discovery is the goal.',
-  'Today: /setup saves rules for review, /scan reviews supported discovery rules for activation, and /check followed by a Solana CA checks market data.',
-  'Private test version. AI interpretation and complete bundle coverage are not live yet; /risk has limited evidence checks; /watch supports market monitoring. Unsupported required checks block discovery activation.',
+  'Describe your criteria with /describe, or use /setup for guided rules. Review and approve them, then use /scan to start scouting. Sift sends matching Solana CAs with reasons and warnings.',
+  'Private test version. Complete bundle coverage is not live yet; unknown required checks cannot qualify coins. Description parsing works locally; optional AI requires separate configuration. /risk checks limited evidence and /watch monitors market data. Admins can enable group alerts through /groups.',
   'Use /help for commands or /status to see what is available.',
 ].join('\n\n');
 
 const HELP = [
   'Sift is in private testing.',
-  '/start — Welcome to Sift\n/setup — Guided criteria setup\n/setup <description> — Save an unresolved request\n/agent — Review your saved rules\n/riskrules — Review the explicit private-test risk policy\n/risk <CA> — Liquidity, creator and buying evidence\n/bundle <CA> <ID> — Verify a known Jito bundle\n/cancel — Discard your draft\n/check <CA> — Solana market snapshot and approved-rule check\n/liquidity <CA> — Manual liquidity evidence (limited pool support)\n/scan — Review/start discovery and see scan status\n/watch — Set a liquidity-drop monitor\n/watchlist — Monitor status and controls\n/watchalerts — Saved monitoring reports\n/pause — Pause discovery and monitors\n/resume — Resume discovery; /watchlist resumes monitors\n/stop — Stop discovery and monitors\n/alerts — Latest saved discovery reports\n/unmute <CA> — Unmute a token\n/sources — Test the candidate feed without activating\n/help — Available commands\n/status — What works today\n/id — Your Telegram user ID',
-  'Discovery uses GeckoTerminal candidates and DEX Screener market checks with limited coverage. AI interpretation and complete bundle coverage are not available yet; /risk has limited evidence checks; market monitoring uses /watch. Approving rules does not start a scan; review /scan separately. No wallet connection is needed.',
+  '/start — Welcome to Sift\n/describe <description> — Prepare criteria for review\n/setup — Guided criteria setup\n/setup <description> — Prepare criteria from a description\n/agent — Review your saved rules\n/groups — Review and enable group destinations privately\n/riskrules — Review the explicit private-test risk policy\n/risk <CA> — Liquidity, creator and buying evidence\n/bundle <CA> <ID> — Verify a known Jito bundle\n/cancel — Discard your draft\n/check <CA> — Solana market snapshot and approved-rule check\n/liquidity <CA> — Manual liquidity evidence (limited pool support)\n/scan — Review/start discovery and see scan status\n/watch — Set a liquidity-drop monitor\n/watchlist — Monitor status and controls\n/watchalerts — Saved monitoring reports\n/pause — Pause discovery and monitors\n/resume — Resume discovery; /watchlist resumes monitors\n/stop — Stop discovery and monitors\n/alerts — Latest saved discovery reports\n/unmute <CA> — Unmute a token\n/sources — Test the candidate feed without activating\n/help — Available commands\n/status — What works today\n/id — Your Telegram user ID',
+  'Group admins: send /group@SiftAgentbot connect in the group, then /groups privately to approve sharing. Adding the bot alone starts nothing. Any verified group admin can use /group@SiftAgentbot stop.',
+  'Discovery uses GeckoTerminal and, when enabled, Pump.fun launch/migration events via PumpPortal. DEX Screener supplies market checks; new coins may lack indexed data. Complete bundle coverage is not available yet. Optional AI interpretation requires operator configuration; market monitoring uses /watch. Approving rules does not start a scan; review /scan separately. No wallet connection is needed.',
 ].join('\n\n');
 
 const STATUS = [
   'Sift status',
-  'Telegram replies: available\nToken checks: /check <CA> — Solana via DEX Screener\nGuided criteria: /setup and /agent\nDiscovery: approved rules only; explicit activation required\nAI interpretation: not connected\nMarket monitoring: /watch and /watchlist (fixed pool)\nRisk evidence: /risk (limited coverage; unknowns block qualification)',
+  'Telegram replies: available\nToken checks: /check <CA> — Solana via DEX Screener\nCriteria: /describe, /setup and /agent\nDiscovery: approved rules only; explicit activation required\nGroup destinations: /groups (admin-controlled)\nMarket monitoring: /watch and /watchlist (fixed pool)\nRisk evidence: /risk (limited coverage; unknowns block qualification)',
   'Use /scan for your discovery status. A saved draft is not an active scan.',
 ].join('\n\n');
 
@@ -66,7 +67,7 @@ export function replyFor(update, allowedUserIds) {
     return { chat_id: chatId, text: 'Sift is in private testing. Your account does not have tester access yet.\n\nUse /id to find the ID needed for access.' };
   }
   const text = REPLIES.get(command) ??
-    'Use /setup for guided rules, /scan for supported discovery or /check <CA> for a Solana market snapshot. AI interpretation and complete bundle coverage are not available yet; /risk checks supported evidence; market monitoring uses /watch.';
+    'Use /describe followed by your criteria, /setup for guided rules, /scan for discovery or /check <CA> for a Solana market snapshot. Complete bundle checks are not available yet; /risk checks supported evidence; /groups manages group alerts.';
   return { chat_id: chatId, text };
 }
 

@@ -102,6 +102,14 @@ subscription; `/watch` continues to monitor market data only.
 
 ## Supplied Jito bundle IDs
 
+The direct PumpSwap trade reader now accepts the pinned read-only Pump Fee
+`get_fees` and `get_fees_with_quote_mint` CPI shapes, with the fee configuration
+bound to the parent swap and direct stack depth required. Unrelated programs,
+unknown fee instructions, mismatched accounts and deeper nesting remain unknown.
+Regression fixtures cover developer sales, atomic buys and supplied bundles with
+these calls. They are synthetic protocol-shaped fixtures, not captured live proof.
+See the [fee-program IDL](https://github.com/pump-fun/pump-public-docs/blob/2293f9a66c654e9fe82dc5e8f4618538f24bb35f/idl/pump_fees.json).
+
 `/bundle <CA> <known Jito bundle ID>` calls Jito's read-only `getBundleStatuses`.
 Require the exact ID, a successful finalized status, distinct valid transaction
 signatures, and independently fetched successful Solana transactions at the same
