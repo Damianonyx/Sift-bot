@@ -69,6 +69,8 @@ test('private delivery verifies Sift identity and sends exactly one diagnostic w
     assert.match(body.text, /DIAGNOSTIC ONLY/);
     assert.match(body.text, /no screening rules were evaluated/);
     assert.ok(body.text.includes(CA));
+    assert.deepEqual(body.reply_markup.inline_keyboard.flat().map((b) => b.copy_text.text), [CA, OTHER]);
+    assert.deepEqual(body.entities.map((e) => body.text.slice(e.offset, e.offset + e.length)), [CA, OTHER]);
     assert.ok(body.text.length < 4096);
     return { message_id: 1, chat: { type: 'private', id: 42 } };
   } } });

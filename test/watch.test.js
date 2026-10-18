@@ -130,6 +130,12 @@ test('a complete synthetic start-to-pinned-pool alert includes evidence, fires a
   assert.ok(sends[0].text.includes(CA) && sends[0].text.includes(POOL));
   assert.match(sends[0].text, /https:\/\/api.dexscreener.com/);
   assert.equal(sends[0].link_preview_options.is_disabled, true);
+  assert.equal(sends[0].reply_markup.inline_keyboard[0][0].copy_text.text, CA);
+  assert.deepEqual(sends[0].entities.map((e) => sends[0].text.slice(e.offset, e.offset + e.length)), [CA]);
+  const respond = createResponder({ agents: s, market: { check: noRequest }, now: () => time });
+  const saved = await respond(callback(`watch:42:event:${s.watchHistory(42)[0].id}:0`), allowed);
+  assert.equal(saved.reply_markup.inline_keyboard[0][0].copy_text.text, CA);
+  assert.deepEqual(saved.entities.map((e) => saved.text.slice(e.offset, e.offset + e.length)), [CA]);
   usd = 0; time += 60000; await runner.cycle();
   assert.equal(sends.length, 1);
   assert.equal(s.watchHistory(42)[0].state, 'sent');

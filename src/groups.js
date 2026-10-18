@@ -2,6 +2,7 @@ import { BOT_USERNAME, commandFor } from './bot.js';
 import { criteriaKey } from './discovery-store.js';
 import { assertApprovable, describeRule } from './rules.js';
 import { TelegramError } from './telegram.js';
+import { withCopyableCAs } from './telegram-format.js';
 import { AgentStoreError } from './agent-store.js';
 
 const admin = member => ['creator', 'administrator'].includes(member?.status);
@@ -106,7 +107,7 @@ export function createGroups({ agents, call, botId, allowedUserIds, now = Date.n
       const event=agents.groupReserve(row.chat_id,owner,key,token,now());if(event===null)continue;
       sent.set(row.chat_id,(sent.get(row.chat_id)??0)+1);
       try {
-        await call('sendMessage',reply(row.chat_id,groupText),signal);
+        await call('sendMessage',withCopyableCAs(reply(row.chat_id,groupText),[token]),signal);
         agents.groupDelivery(event,'sent');
       } catch(error) {
         if (error instanceof AgentStoreError) throw error;

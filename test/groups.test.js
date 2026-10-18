@@ -89,7 +89,9 @@ test('future discovery matches are shared once with evidence and without private
   await runner.cycle();await runner.cycle();
   const sends=s.calls.filter(c=>c.method==='sendMessage');assert.equal(sends.length,2);
   const group=sends.find(c=>c.body.chat_id===chat);assert.ok(group.body.text.includes(CA));assert.match(group.body.text,/Risk checks were not requested/);
-  assert.equal(group.body.reply_markup,undefined);assert.ok(group.body.text.length<=4096);
+  assert.deepEqual(group.body.reply_markup.inline_keyboard,[[{text:'Copy CA',copy_text:{text:CA}}]]);
+  assert.deepEqual(group.body.entities.map(e=>group.body.text.slice(e.offset,e.offset+e.length)),[CA]);
+  assert.ok(group.body.text.length<=4096);
 });
 
 test('removing admin access, pausing scans and stopping during authorization prevent group sends',async t=>{

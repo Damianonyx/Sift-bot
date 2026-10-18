@@ -10,6 +10,7 @@ import { createWatchCommands, watchSummary } from './watch-commands.js';
 import { createRiskData, attachRisk, needsRisk, formatRiskReport } from './risk.js';
 import { createBundleData, isBundleId } from './bundle-evidence.js';
 import { formatSourceHealth } from './candidate-sources.js';
+import { withCopyableCAs } from './telegram-format.js';
 
 export function createResponder({ market = createMarketData(), agents, feed, groups, descriptionCommands, aiEnabled = false, liquidity = createLiquidityData(), risk = createRiskData({ liquidity }), bundles = createBundleData(), now = Date.now, wait } = {}) {
   const agentSetup = agents ? createAgentSetup(agents) : null;
@@ -55,7 +56,8 @@ export function createResponder({ market = createMarketData(), agents, feed, gro
       return response;
     }
     if (!['check', 'liquidity', 'risk', 'bundle'].includes(context.command)) return replyFor(update, allowedUserIds);
-    const reply = (text) => ({ chat_id: context.chatId, text, link_preview_options: { is_disabled: true } });
+    const reply = (text) => withCopyableCAs({ chat_id: context.chatId, text,
+      link_preview_options: { is_disabled: true } }, [context.args]);
     let bundleId;
     if (context.command === 'bundle') {
       const parts=context.args.split(/\s+/);

@@ -181,6 +181,8 @@ test('the complete command path returns the matching CA, source data and per-cha
   assert.equal(response.chat_id, 42);
   assert.deepEqual(response.link_preview_options, { is_disabled: true });
   assert.match(response.text, /SYNTHETIC TEST ONLY/);
+  assert.equal(response.reply_markup.inline_keyboard[0][0].copy_text.text, CA);
+  assert.deepEqual(response.entities.map((e) => response.text.slice(e.offset, e.offset + e.length)), [CA]);
   assert.match(response.text, /Market cap .*\$100,000/);
   assert.match((await respond(input('/status'), allowed)).text, /last request succeeded/);
   assert.match((await respond(input('/check ' + CA), allowed)).text, /Try again in 3 seconds/);

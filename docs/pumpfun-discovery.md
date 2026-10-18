@@ -172,7 +172,26 @@ them for later checks. Missing required liquidity must still block qualification
 after indexing. The temporary fixed-mint probe was removed after recording these
 results; no automatic repeated public checks or paid services were enabled.
 
-Live private Telegram delivery, a complete qualifying scan and group delivery
-remain unverified in this build environment, which has no Telegram credentials.
-General bundle coverage remains unknown. Private tester invitations and the test
-week remain deferred.
+The owner confirmed private Telegram delivery from the configured Codespace on
+October 18, 2026 by sharing the received **Sift · Connection check** message. That
+run received PumpPortal candidates and a GeckoTerminal response; all three sampled
+mints were still unindexed. This confirms private diagnostic delivery, not a
+qualifying match. This build environment still has no Telegram credentials.
+
+A complete qualifying scan and live group delivery remain unverified. General
+bundle coverage remains unknown. Private tester invitations and the test week
+remain deferred.
+
+### Copying a CA
+
+New token reports format the CA as its own monospace span and include a **Copy CA**
+button. The button uses Telegram's native
+[clipboard action](https://core.telegram.org/bots/api#copytextbutton) to copy only
+the full mint address, without the label or surrounding report. Messages containing
+several coins have numbered buttons with abbreviated addresses for identification;
+the copied value is always the full address.
+
+This applies to private and enabled group discovery alerts, manual token/evidence
+checks, monitoring reports, saved report views and connection diagnostics. Existing
+Monitor, Mute and Pause controls remain available. Previously delivered messages
+are not edited; reopen a saved report or request a new check after updating Sift.

@@ -5,6 +5,7 @@ import { formatTokenReport } from './token-report.js';
 import { MarketDataError } from './market.js';
 import { AgentStoreError } from './agent-store.js';
 import { TelegramError } from './telegram.js';
+import { withCopyableCAs } from './telegram-format.js';
 import { attachRisk, needsRisk, RISK_FIELDS, formatRiskReport } from './risk.js';
 import { CANDIDATE_LIMIT, DISCOVERY_COVERAGE, formatCandidateSource } from './candidate-sources.js';
 
@@ -110,11 +111,11 @@ export function createDiscoveryRunner({ feed, market, agents, risk, groups, call
         if (eventId === null) continue;
         stat.sent++;
         try {
-          await call('sendMessage', { chat_id: id, text, link_preview_options: { is_disabled: true },
+          await call('sendMessage', withCopyableCAs({ chat_id: id, text, link_preview_options: { is_disabled: true },
             reply_markup: { inline_keyboard: [[{ text: 'Monitor', callback_data: `watch:${id}:prompt:${eventId}:0` }], [
               { text: 'Dismiss', callback_data: `scan:${id}:dismiss:${eventId}` },
               { text: 'Mute token', callback_data: `scan:${id}:mute:${eventId}` },
-            ]] } }, signal);
+            ]] } }, [candidate.address]), signal);
           agents.discoveryDelivery(id, eventId, 'sent');
         } catch (error) {
           if (error instanceof AgentStoreError) throw error;

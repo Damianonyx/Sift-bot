@@ -4,6 +4,7 @@ import { criteriaKey } from './discovery-store.js';
 import { isSolanaAddress } from './market.js';
 import { ALERT_LIMIT, DISCOVERY_COVERAGE } from './discovery.js';
 import { formatSourceHealth } from './candidate-sources.js';
+import { withCopyableCAs } from './telegram-format.js';
 
 const ISSUES = {
   RULES_CHANGED: 'Approved rules changed; review and start again.',
@@ -67,8 +68,8 @@ export function createScanCommands({ agents, feed }) {
         }
         const alert = agents.discoveryAlert(id, value);
         if (!alert) return ack('That report is not available for your account.');
-        if (action === 'view') return { chat_id: id, text: 'Saved discovery report (not a fresh check):\n\n' + alert.payload.text,
-          link_preview_options: { is_disabled: true }, ...ack('Saved report.') };
+        if (action === 'view') return withCopyableCAs({ chat_id: id, text: 'Saved discovery report (not a fresh check):\n\n' + alert.payload.text,
+          link_preview_options: { is_disabled: true }, ...ack('Saved report.') }, [alert.token]);
         if (action === 'mute') agents.discoveryMute(id, alert.token);
         else agents.discoveryDelivery(id, value, 'dismissed');
         return ack(action === 'mute' ? 'Token muted. Use /unmute followed by its CA to undo.' : 'Dismissed in your Sift alert history.');
@@ -115,9 +116,9 @@ export function createScanCommands({ agents, feed }) {
     if (command === 'alerts') {
       const history = agents.discoveryHistory(id);
       if (!history.length) return reply('No discovery reports have been recorded for your agent yet.');
-      return reply('Your latest saved discovery reports (not fresh checks):\n\n' + history.map((row) =>
+      return withCopyableCAs(reply('Your latest saved discovery reports (not fresh checks):\n\n' + history.map((row) =>
         `#${row.id} · ${row.state === 'pending' ? 'delivery uncertain after interruption' : row.state}\nCA: ${row.token}\n${new Date(row.created_at).toISOString()}`).join('\n\n'),
-      history.map((row) => [button(`View report #${row.id}`, id, 'view', row.id)]));
+      history.map((row) => [button(`View report #${row.id}`, id, 'view', row.id)])), history.map((row) => row.token));
     }
     if (command === 'sources') {
       try {

@@ -140,12 +140,22 @@ test('a complete synthetic feed-to-market-to-Telegram cycle sends the CA and evi
   assert.equal(sent[0].chat_id, 42);
   assert.match(sent[0].text, /Discovery match/);
   assert.ok(sent[0].text.includes('CA: ' + CA));
+  assert.deepEqual(sent[0].entities.map((e) => sent[0].text.slice(e.offset, e.offset + e.length)), [CA]);
+  assert.equal(sent[0].reply_markup.inline_keyboard.flat().find((b) => b.text === 'Copy CA').copy_text.text, CA);
+  assert.ok(sent[0].reply_markup.inline_keyboard.flat().find((b) => b.text === 'Monitor').callback_data);
   assert.ok(sent[0].text.includes('https://dexscreener.com/solana/' + address(20)));
   assert.match(sent[0].text, /PASS · Required · Market cap/);
   assert.match(sent[0].text, /Provider update time: unknown/);
   assert.doesNotMatch(sent[0].text, /Manual market snapshot|Automatic discovery is not running|No strategy has been applied/);
   assert.equal(store.discoveryHistory(42)[0].state, 'sent');
   assert.equal(store.discoveryHistory(57).length, 0);
+  const respond = createResponder({ agents: store, feed, market });
+  const history = await respond(input('/alerts'), allowed);
+  assert.equal(history.reply_markup.inline_keyboard.flat().find((b) => b.copy_text).copy_text.text, CA);
+  const view = history.reply_markup.inline_keyboard.flat().find((b) => b.text.startsWith('View report'));
+  const saved = await respond(callback(view.callback_data), allowed);
+  assert.equal(saved.reply_markup.inline_keyboard.flat().find((b) => b.copy_text).copy_text.text, CA);
+  assert.deepEqual(saved.entities.map((e) => saved.text.slice(e.offset, e.offset + e.length)), [CA]);
   // Use a non-throttled market stub for the next cycle; identity dedup survives a fresh snapshot.
   await createDiscoveryRunner({ feed: feedStub(), market: { check: async () => normalisePairs([pair()], CA, NOW) },
     agents: store, allowedUserIds: allowed, call: noRequest, now: () => NOW }).cycle();
