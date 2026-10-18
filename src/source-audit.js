@@ -27,6 +27,7 @@ export function normaliseGeckoPool(raw, snapshot, fetchedAt) {
 }
 
 export function compareMetric(dex, other) {
+  dex = nonnegative(dex); other = nonnegative(other);
   if (dex === null || other === null) return { dex, other, state: 'unknown', differencePct: null };
   const delta = dex === 0 ? (other === 0 ? 0 : null) : (other - dex) / dex * 100;
   return { dex, other, state: dex === other ? 'equal' : 'different', differencePct: Number.isFinite(delta) ? delta : null };
@@ -72,6 +73,12 @@ export function createSourceAudit({ fetchImpl = fetch, now = Date.now, meteora =
 }
 
 const value = (n) => n === null ? 'unknown' : n === 0 ? '0' : Number(n.toPrecision(7)).toString();
+const unavailable = (state) => ({
+  NOT_INDEXED: 'no indexed pool found in this source', DISABLED: 'disabled',
+  COOLDOWN: 'temporarily limited', RATE_LIMITED: 'provider rate limit',
+  POOL_OR_TOKEN_MISMATCH: 'pool or token identities did not match', POOL_MISMATCH: 'pool identity did not match',
+  INCOMPLETE_DEX_IDENTITY: 'DEX Screener did not supply both token identities',
+}[state] ?? 'data could not be read');
 export function formatSourceAudit(report) {
   const lines = [`Sift · Source comparison\nCA: ${report.address}`];
   if (report.state === 'not_indexed') return lines.concat('DEX Screener has no supported base-token pool. A same-pool comparison is unavailable. Missing data is not a pass.').join('\n\n');
@@ -81,10 +88,10 @@ export function formatSourceAudit(report) {
     lines.push('DEX Screener / GeckoTerminal:\n' + report.comparisons.map((c) =>
       `${c.label}: ${value(c.dex)} / ${value(c.other)}; ${c.state === 'unknown' ? 'not comparable' :
         c.differencePct === null ? 'different; DEX value is zero' : `difference ${value(c.differencePct)}% of DEX value`}`).join('\n'));
-  } else lines.push(`GeckoTerminal comparison unavailable: ${report.gecko.state}.`);
+  } else lines.push(`GeckoTerminal comparison unavailable: ${unavailable(report.gecko.state)}.`);
   for (const p of report.meteora) {
     const name = METEORA_PROTOCOLS[p.source]?.name ?? 'Meteora';
-    lines.push(p.state === 'responded' ? `${name}: pool and both mint identities agree.\nFetched: ${new Date(p.fetchedAt).toISOString()}\nAPI TVL: ${value(p.tvl)}; API 1h volume: ${value(p.volume1h)}. Units/methodology are not established by the published schema; these numbers are not compared with USD metrics.\n${p.sourceUrl}` : `${name}: ${p.state}.`);
+    lines.push(p.state === 'responded' ? `${name}: pool and both mint identities agree.\nFetched: ${new Date(p.fetchedAt).toISOString()}\nReported TVL: ${value(p.tvl)}; reported 1h volume: ${value(p.volume1h)}. USD comparability is not verified, so these figures are not included in the USD comparison.\n${p.sourceUrl}` : `${name}: ${unavailable(p.state)}.`);
   }
   lines.push('These are provider observations, not an accuracy or safety certification. Provider update times are unknown; requests are not synchronized. Prices, indexing delays and calculation methods can explain differences. Agreement is not independent on-chain proof. No lock, developer or bundle verdict is inferred. Your rules and scans are unchanged.');
   lines.push(report.dexSourceUrl, report.gecko.sourceUrl ?? GECKO_ORIGIN + geckoPoolPath(report.poolAddress));

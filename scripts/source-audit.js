@@ -28,7 +28,7 @@ try {
         if (snapshot.selected) break;
         await wait(3100, undefined, { signal });
       }
-      report.samples.push({ selection: `${source}: highest API TVL pool`, directPool: pool,
+      report.samples.push({ selection: `${source}: highest API TVL pool`, source, directPool: pool,
         audit: await createSourceAudit().check(snapshot, { signal }) });
     } catch (error) { report.samples.push({ selection: source, state: error.code ?? 'UNAVAILABLE' }); }
   }
@@ -39,7 +39,8 @@ try {
     report.samples.push({ selection: 'Previously checked Pump.fun token', audit: await createSourceAudit().check(snapshot, { signal }) });
   } catch (error) { report.samples.push({ selection: 'Previously checked Pump.fun token', state: error.code ?? 'UNAVAILABLE' }); }
   report.completedAt = new Date().toISOString();
-  report.complete = report.feeds.every((s) => s.state === 'responded') && report.samples.every((s) => s.audit?.gecko?.state === 'responded');
+  report.complete = report.feeds.every((s) => s.state === 'responded') && report.samples.every((s) =>
+    s.audit?.gecko?.state === 'responded' && (!s.source || s.audit.meteora.some((p) => p.source === s.source && p.state === 'responded')));
   await writeFile('source-audit-results.json', JSON.stringify(report, null, 2) + '\n');
   console.log(JSON.stringify(report, null, 2));
   process.exitCode = report.complete ? 0 : 2;

@@ -1,9 +1,6 @@
 name: Public source comparison
 on:
   workflow_dispatch:
-  push:
-    branches: [codex/live-discovery-check]
-    paths: [.github/workflows/source-audit.yml]
 permissions:
   contents: read
 concurrency:

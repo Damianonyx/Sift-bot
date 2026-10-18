@@ -1,7 +1,9 @@
 # Pump.fun discovery
 
 Sift can scout Pump.fun launches and PumpSwap migrations using the third-party
-PumpPortal event feed, alongside GeckoTerminal's first page of new Solana pools.
+PumpPortal event feed, alongside GeckoTerminal's first page of new Solana pools
+and direct Meteora DLMM/DAMM v2 feeds. See [source verification](source-verification.md)
+for the Meteora coverage and recorded cross-provider disagreements.
 Events identify candidates. The existing DEX Screener adapter supplies market
 metrics, and separate on-chain readers supply supported risk evidence.
 
@@ -45,9 +47,9 @@ candidates rotate when the scanner attempts them, allowing another market check
 after indexing catches up. A first migration refreshes a queued launch once;
 duplicate events do not reset its position or retention time.
 
-The scanner interleaves the PumpPortal queue and GeckoTerminal candidates before
+The scanner interleaves the PumpPortal queue, GeckoTerminal and Meteora candidates before
 applying a shared limit of 20 distinct mints per cycle. Overlapping mints are
-checked once with both sources recorded. Existing private/group delivery limits,
+checked once with the observed sources recorded. Existing private/group delivery limits,
 ownership checks, rule approval and persistent alert deduplication still apply.
 Source diagnostics do not advance the candidate rotation.
 
@@ -61,7 +63,7 @@ Transport failures discard the live batch and reconnect with bounded backoff.
 Connections that do not open within ten seconds, or deliver no valid candidate
 events for 90 seconds, are closed and retried. Unknown event formats cannot be
 used as candidates. If one source fails, the other may continue with visible
-partial coverage. Two unavailable sources cannot become a successful empty scan.
+partial coverage. If all enabled sources are unavailable, that cannot become a successful empty scan.
 Raw status includes message and control-message counts, separately from valid
 candidate delivery. Control messages do not prove that either subscription works;
 provider message text is not stored in status or diagnostics.

@@ -117,6 +117,7 @@ test('same-pool comparisons reject wrong chain, pool and mint identities; revers
   assert.equal(compareMetric(0, 1).differencePct, null);
   assert.equal(compareMetric(0, 0).state, 'equal');
   assert.equal(compareMetric(1, null).state, 'unknown');
+  assert.equal(compareMetric(undefined, 1).state, 'unknown');
 });
 
 test('source audit reports disagreements and missing data without replacing screening metrics or passing risk', async () => {
@@ -131,7 +132,7 @@ test('source audit reports disagreements and missing data without replacing scre
   const text = formatSourceAudit(report);
   assert.match(text, /not an accuracy or safety certification/);
   assert.match(text, /Provider update times are unknown/);
-  assert.match(text, /Units\/methodology are not established/);
+  assert.match(text, /USD comparability is not verified/);
   assert.match(text, /Meteora DLMM: pool and both mint identities agree/);
   assert.ok(text.length < 4000);
   await assert.rejects(audit.check(snapshot), /COOLDOWN/);

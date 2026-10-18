@@ -7,9 +7,10 @@
 Sift is a private Telegram bot for personalised Solana memecoin discovery and
 monitoring: [@SiftAgentbot](https://t.me/SiftAgentbot).
 
-This build continues `codex/agent-group-discovery` from commit `cace4930`, adding
-Pump.fun launch/migration candidates via PumpPortal to the existing description,
-risk-evidence and admin-controlled group discovery flows.
+This build combines description-based criteria, bounded discovery, risk evidence
+and admin-controlled group alerts. Candidate sources include PumpPortal,
+GeckoTerminal and direct Meteora DLMM/DAMM v2 APIs. `/verify <CA>` compares
+provider observations for the same pool; it does not certify their accuracy.
 **Unknown required checks never qualify a coin. General bundle coverage remains
 unknown, so the owner's complete risk policy cannot yet produce matching alerts.**
 The website redesign and public release remain deferred.
@@ -18,10 +19,12 @@ The website redesign and public release remain deferred.
 
 - DEX Screener market snapshots with one selected pool, retrieval times, unknown
   metrics and evidence links. Market cap is never replaced by FDV.
+- Same-pool source comparisons with explicit differences and missing data.
+- Individual Copy CA buttons in manual reports, discovery and monitor alerts.
 - Guided criteria, drafts, explicit review/approval and local SQLite persistence.
 - `/describe` turns supported descriptions into a draft with the original text
   retained. Optional OpenAI interpretation is disabled by default.
-- Bounded GeckoTerminal and Pump.fun discovery (PumpPortal launch/migration events);
+- Bounded GeckoTerminal, Pump.fun (via PumpPortal) and Meteora DLMM/DAMM v2 discovery;
   explicit activation, private reports, delivery
   records, pause/resume/stop, dismissal and mute controls.
 - Fixed-pool USD-liquidity monitoring with captured market rules and controls.
@@ -51,6 +54,7 @@ feed access; they did not verify these new risk claims or continuous hosting.
 | `/groups` | Review, enable or stop group destinations privately |
 | `/riskrules` | Review replacement of existing extra instructions with the explicit risk policy |
 | `/check <CA>` | Market snapshot and approved-rule evaluation |
+| `/verify <CA>` | Compare DEX Screener/GeckoTerminal and check direct Meteora identity for supported pools |
 | `/liquidity <CA>` | Selected-pool LP protection evidence |
 | `/risk <CA>` | Liquidity, developer and buying evidence, flags and limitations |
 | `/bundle <CA> <ID>` | Verify a known Jito bundle; missing status stays unknown |
@@ -62,7 +66,11 @@ feed access; they did not verify these new risk claims or continuous hosting.
 | `/alerts`, `/unmute <CA>` | Saved discovery reports and token unmute |
 
 Start with the [description and group setup guide](docs/agent-discovery.md).
-See [Pump.fun scouting and its coverage limits](docs/pumpfun-discovery.md).
+See [Pump.fun scouting and its coverage limits](docs/pumpfun-discovery.md) and
+[data-source verification with recorded live results](docs/source-verification.md).
+The source samples found a large market-cap disagreement and a missing pool
+comparison; they do not establish uniform accuracy. Bubblemaps is deferred; no
+paid integration was added.
 In groups, `/group@SiftAgentbot connect` prepares a connection and
 `/group@SiftAgentbot stop` stops sharing. Sift and the connecting tester must be
 group admins. Other group messages are ignored; adding the bot starts nothing.
@@ -145,13 +153,16 @@ with the same database preserves state; deleting the runtime/database loses it.
 Corrupt state stops the bot rather than replacing user settings.
 
 Discovery checks at most 20 distinct candidates per cycle, interleaving the first
-GeckoTerminal new-pools page with a bounded Pump.fun event queue. PumpPortal's
+GeckoTerminal new-pools page, a bounded Pump.fun event queue and the first 20
+pools from each Meteora protocol. Both Meteora pool mints are candidates; X/Y
+is not assumed to mean base/quote. Meteora candidates rotate after selection.
+`SIFT_METEORA_ENABLED=false` disables both direct Meteora feeds. PumpPortal's
 free launch/migration subscriptions are enabled by default; no key or wallet is
 used. The stream connects only for approved active scans or short `/sources`
 diagnostics. It retains at most 200 candidates for 20 minutes in memory, rotating
 attempted candidates for indexing retries. Dropped events and gaps remain visible.
 Market checks share a three-second cooldown; GeckoTerminal has a one-minute
-cache. Risk checks have a one-minute cooldown and a 45-second deadline, so not
+cache; Meteora refreshes at most once per minute per protocol. Risk checks have a one-minute cooldown and a 45-second deadline, so not
 all candidates receive chain evidence. Unknown/limited evidence cannot match.
 Source limits and slow calls extend cycle times; there is no downtime catch-up.
 
