@@ -31,6 +31,7 @@ export function createPumpFeed({ enabled = true, socketFactory = (url) => new We
   let socket = null, state = enabled ? 'idle' : 'disabled', stopped = false;
   let connectedAt = null, lastEventAt = null, nextConnectAt = 0, failures = 0, leaseUntil = 0;
   let rejected = 0, dropped = 0, expired = 0, interruptions = 0;
+  let messagesReceived = 0, controlMessages = 0, lastMessageAt = null;
   const queue = new Map();
   let turn = 0;
 
@@ -83,6 +84,8 @@ export function createPumpFeed({ enabled = true, socketFactory = (url) => new We
     });
     current.addEventListener('message', ({ data }) => {
       if (socket !== current) return;
+      messagesReceived++;
+      lastMessageAt = now();
       if (typeof data !== 'string' || Buffer.byteLength(data) > MAX_MESSAGE_BYTES) {
         rejected++; failed(current); return;
       }
@@ -93,7 +96,7 @@ export function createPumpFeed({ enabled = true, socketFactory = (url) => new We
         failed(current); return;
       }
       // A subscription acknowledgement is not proof that events are arriving.
-      if (typeof raw?.message === 'string' && raw.txType === undefined) return;
+      if (typeof raw?.message === 'string' && raw.txType === undefined) { controlMessages++; return; }
       const candidate = normalisePumpEvent(raw, now());
       if (!candidate) { rejected++; return; }
       state = 'receiving';
@@ -121,6 +124,7 @@ export function createPumpFeed({ enabled = true, socketFactory = (url) => new We
       prune();
       return { source: 'pumpportal', sourceUrl: PUMP_SOURCE_URL, state, checkedAt: lastEventAt,
         candidateCount: queue.size, rejected, dropped, expired, interruptions,
+        messagesReceived, controlMessages, lastMessageAt,
         retryAt: state === 'unavailable' ? nextConnectAt : null };
     },
     // Called by the runtime once per second; /sources grants a short diagnostic

@@ -77,14 +77,22 @@ test('a single lazy socket subscribes only to free launches/migrations; acknowle
   assert.equal(f.sockets.length, 1);
   socket.message({ message: 'Successfully subscribed to token creation events.' });
   assert.equal(f.pump.status().state, 'connected');
+  assert.equal(f.pump.status().messagesReceived, 1);
+  assert.equal(f.pump.status().controlMessages, 1);
+  assert.equal(f.pump.status().lastMessageAt, NOW);
+  assert.equal(f.pump.status().checkedAt, null);
   assert.equal((await f.pump.read()).partial, true);
   socket.message(event());
   assert.equal(f.pump.status().state, 'receiving');
+  assert.equal(f.pump.status().messagesReceived, 2);
+  assert.equal(f.pump.status().controlMessages, 1);
   assert.equal((await f.pump.read()).candidates[0].address, mint(1));
   f.pump.tick(false);
   assert.equal(socket.closes, 1);
   assert.equal(f.pump.status().state, 'idle');
   assert.equal((await f.pump.read()).candidates.length, 0);
+  socket.message(event());
+  assert.equal(f.pump.status().messagesReceived, 2); // Closed socket messages do not count.
   f.pump.close();
 });
 

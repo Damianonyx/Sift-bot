@@ -1,0 +1,25 @@
+name: Public discovery diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: public-discovery-diagnostic
+  cancel-in-progress: false
+
+jobs:
+  public-sources:
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      # No secrets, Telegram delivery, AI calls, wallet or paid trade streams.
+      # Exit 2 is an incomplete live observation, not a passing source check.
+      - name: Observe public feeds and fetch candidate market data
+        run: npm run check:live

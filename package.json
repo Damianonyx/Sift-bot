@@ -8,7 +8,8 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
     "test": "node --test --test-isolation=none test/*.test.js",
-    "preflight": "node --env-file-if-exists=.env scripts/preflight.js"
+    "preflight": "node --env-file-if-exists=.env scripts/preflight.js",
+    "check:live": "node --use-env-proxy --env-file-if-exists=.env scripts/live-check.js"
   }
 }
 
