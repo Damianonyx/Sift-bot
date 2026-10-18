@@ -95,6 +95,11 @@ npm run preflight
 npm start
 ```
 
+For the bounded live source diagnostic, stop the other Sift process and run
+`npm run check:live`. It makes read-only public-data requests, leaves saved rules
+unchanged and sends no Telegram message by default. See the
+[live verification steps](docs/pumpfun-discovery.md#run-the-live-check-in-codespaces).
+
 `preflight` checks local runtime/private configuration only. It prints no tokens
 or tester IDs, makes no network requests and changes no saved data. It does not
 replace live acceptance. GitHub Actions runs the same offline tests on changes.

@@ -78,6 +78,59 @@ is silently removed to make a Pump.fun candidate qualify.
 
 ## Verification status
 
+### Run the live check in Codespaces
+
+Stop any other Sift process first, keeping one PumpPortal connection at a time.
+On Node.js 24, from the repository terminal, run:
+
+```sh
+npm run check:live
+```
+
+The command observes launch/migration events for up to 12 seconds, reads the
+GeckoTerminal feed and checks at most three distinct mints with DEX Screener.
+It prints stage progress and a JSON result. It requests cancellation at 45 seconds
+and forcibly exits by 55 seconds if a transport fails to stop. It uses the existing
+proxy environment when present, without disabling TLS verification.
+
+This default command needs no Telegram token, calls no AI service, writes no
+database, changes no criteria and sends no messages. It cannot prove a strategy
+has a qualifying match. `pumpToMarketVerified: true` only means an observed
+PumpPortal mint produced a fresh DEX Screener response containing a supported
+pool. Required metrics can still be missing and provider update time is unknown.
+An empty market response is reported as `not_indexed`, not a rejected or safe coin.
+
+After the source check, an explicitly requested private delivery diagnostic is:
+
+```sh
+npm run check:live -- --telegram YOUR_NUMERIC_USER_ID
+```
+
+Replace the placeholder with your own numeric Telegram user ID. The existing
+`TELEGRAM_BOT_TOKEN` secret and `SIFT_ALLOWED_USER_IDS` must already be configured
+in that Codespace. The recipient must be in the allowlist; negative group IDs
+are rejected. No token belongs in the command, Git or chat.
+
+The command verifies @SiftAgentbot's identity and attempts one message clearly
+labelled as a connection diagnostic, containing the observed CAs and market
+response states. It does not poll updates, start scanning, contact group members
+or evaluate/approve rules. `accepted_by_telegram` means Telegram accepted a private
+message; check your chat to confirm receipt. Ambiguous sends are not retried in
+the same run; rerunning an explicitly requested delivery check is a new attempt.
+
+Exit code 0 confirms the observed PumpPortal-to-market path and, if requested,
+Telegram API acceptance. Exit code 2 means incomplete coverage or delivery; exit
+code 1 means configuration/runtime failure or the hard deadline. None of these
+results establish a qualifying full-risk match or complete group delivery.
+
+The separate **Public discovery diagnostic** GitHub Actions workflow runs the
+same read-only command on the `codex/live-discovery-check` development branch.
+It uses no repository secrets and cannot send Telegram messages. An incomplete
+observation makes that workflow fail; the offline test workflow remains separate.
+There is no scheduled polling or continuous bot deployment in this workflow.
+
+### Current evidence
+
 Automated checks use synthetic events and mocked transport. They cover feed
 lifecycle, reconnection, queue bounds, deduplication, partial outages, permissions,
 source attribution, missing-index retries and delivery through the existing
