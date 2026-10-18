@@ -62,6 +62,9 @@ Connections that do not open within ten seconds, or deliver no valid candidate
 events for 90 seconds, are closed and retried. Unknown event formats cannot be
 used as candidates. If one source fails, the other may continue with visible
 partial coverage. Two unavailable sources cannot become a successful empty scan.
+Raw status includes message and control-message counts, separately from valid
+candidate delivery. Control messages do not prove that either subscription works;
+provider message text is not stored in status or diagnostics.
 
 ## What an alert establishes
 
@@ -87,7 +90,8 @@ On Node.js 24, from the repository terminal, run:
 npm run check:live
 ```
 
-The command observes launch/migration events for up to 12 seconds, reads the
+The command observes up to two distinct launch/migration candidates for up to
+30 seconds, reads the
 GeckoTerminal feed and checks at most three distinct mints with DEX Screener.
 It prints stage progress and a JSON result. It requests cancellation at 45 seconds
 and forcibly exits by 55 seconds if a transport fails to stop. It uses the existing
@@ -136,7 +140,13 @@ lifecycle, reconnection, queue bounds, deduplication, partial outages, permissio
 source attribution, missing-index retries and delivery through the existing
 scanner. No live Telegram message or paid API request was made for this change.
 
-The live WebSocket access check from the build environment did not complete before
-cancellation. Runtime connectivity and current event payload compatibility still
-need verification. This is a code integration, not a claim that the deployed bot
-is already connected. Private tester invitations and the test week remain deferred.
+The first [public runner observation](https://github.com/Damianonyx/Sift-bot/actions/runs/39112973428)
+on October 18, 2026 opened the PumpPortal socket but received no valid candidates
+within 12 seconds. GeckoTerminal returned 18 candidates; the sampled mint had no
+supported DEX Screener pool. The diagnostic correctly exited with code 2
+(incomplete). The observation window is now 30 seconds, with message counters to
+distinguish a quiet socket from rejected candidate data.
+
+Current event payload compatibility and a live PumpPortal-to-market observation
+still need verification. This is not a claim that the deployed bot is already
+connected. Private tester invitations and the test week remain deferred.

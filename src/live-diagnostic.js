@@ -25,14 +25,14 @@ export async function runLiveDiagnostic({ pump, gecko, market, telegram = null, 
   try {
     const reads = await Promise.allSettled([
       (async () => {
-        progress('PumpPortal: observing free launch/migration events for up to 12 seconds.');
+        progress('PumpPortal: observing free launch/migration events for up to 30 seconds.');
         const startedAt = now();
-        while (!signal.aborted && now() - startedAt < 12_000) {
+        while (!signal.aborted && now() - startedAt < 30_000) {
           pump.tick(true);
           const batch = await pump.read({ signal });
           if (batch.health.state === 'receiving' && batch.candidates.length) {
             pumpCandidates = batch.candidates;
-            break;
+            if (pumpCandidates.length >= 2) break;
           }
           if (['disabled', 'unavailable', 'stopped'].includes(batch.health.state)) break;
           await wait(250, undefined, { signal });

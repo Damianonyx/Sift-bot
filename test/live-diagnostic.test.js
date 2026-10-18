@@ -39,6 +39,18 @@ test('a socket without events and fresh launches without indexed pools remain in
   }
 });
 
+test('observation includes events arriving after the original short window and is still bounded', async () => {
+  const fixture = setup({ events: false });
+  fixture.pump.status = () => ({ state: fixture.now() - NOW >= 15_000 ? 'receiving' : 'connected' });
+  fixture.pump.read = async () => ({ health: fixture.pump.status(),
+    candidates: fixture.now() - NOW >= 15_000 ? [{ address: CA }, { address: OTHER }] : [] });
+  const report = await runLiveDiagnostic(fixture);
+  assert.equal(report.pumpToMarketVerified, true);
+  assert.equal(report.market.length, 2);
+  assert.deepEqual(report.market[1].sources, ['pumpportal', 'geckoterminal']);
+  assert.ok(fixture.now() - NOW < 30_000);
+});
+
 test('private delivery requires an explicit allowed positive user ID; read-only mode needs no token', () => {
   assert.equal(readDiagnosticTarget({}, undefined), null);
   for (const id of ['-100123', '99', '0', '42,57', '', '9007199254740993']) {
