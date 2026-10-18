@@ -91,8 +91,8 @@ npm run check:live
 ```
 
 The command observes up to two distinct launch/migration candidates for up to
-30 seconds, reads the
-GeckoTerminal feed and checks at most three distinct mints with DEX Screener.
+30 seconds, reads the GeckoTerminal feed and checks at most three distinct mints
+with DEX Screener.
 It prints stage progress and a JSON result. It requests cancellation at 45 seconds
 and forcibly exits by 55 seconds if a transport fails to stop. It uses the existing
 proxy environment when present, without disabling TLS verification.
@@ -128,7 +128,9 @@ code 1 means configuration/runtime failure or the hard deadline. None of these
 results establish a qualifying full-risk match or complete group delivery.
 
 The separate **Public discovery diagnostic** GitHub Actions workflow runs the
-same read-only command on the `codex/live-discovery-check` development branch.
+same read-only command. It is manual-only after the initial development runs;
+GitHub requires the workflow to exist on the default branch before manual dispatch.
+The CLI can be run directly from the development branch in the meantime.
 It uses no repository secrets and cannot send Telegram messages. An incomplete
 observation makes that workflow fail; the offline test workflow remains separate.
 There is no scheduled polling or continuous bot deployment in this workflow.
@@ -147,6 +149,30 @@ supported DEX Screener pool. The diagnostic correctly exited with code 2
 (incomplete). The observation window is now 30 seconds, with message counters to
 distinguish a quiet socket from rejected candidate data.
 
-Current event payload compatibility and a live PumpPortal-to-market observation
-still need verification. This is not a claim that the deployed bot is already
-connected. Private tester invitations and the test week remain deferred.
+The [30-second observation](https://github.com/Damianonyx/Sift-bot/actions/runs/39113161925)
+at 08:53 UTC received two valid PumpPortal candidates, two control messages and
+zero rejected events. Both candidates initially returned no supported DEX
+Screener pool. The [follow-up observation](https://github.com/Damianonyx/Sift-bot/actions/runs/39113310499)
+at 08:55 UTC used the same market adapter to recheck those exact two mints:
+
+| Observed PumpPortal mint | Initial market response | Follow-up market response |
+| --- | --- | --- |
+| `7QVsxWd2RaWxqhQGAswYrDR6A92jWwvqF36krRWJbxNN` | No supported pool | One supported pool; market cap $2,879.12; liquidity unknown |
+| `BdBLNzhczGB9FRcrBencDc35HFXBG8RBiZDz7VApump` | No supported pool | One supported pool; market cap $2,884.35; liquidity unknown |
+
+These are historical connectivity observations, not recommendations or current
+quotes. They verify that observed event mints can reach the market adapter after
+indexing; they do not establish complete metrics, on-chain truth or rule matches.
+The follow-up also observed two further PumpPortal candidates and an indexed
+GeckoTerminal candidate. Its fresh-launch check still exited 2 because its newly
+observed PumpPortal candidates were not indexed within that short run.
+
+The scanner already retains queued candidates for up to 20 minutes and rotates
+them for later checks. Missing required liquidity must still block qualification
+after indexing. The temporary fixed-mint probe was removed after recording these
+results; no automatic repeated public checks or paid services were enabled.
+
+Live private Telegram delivery, a complete qualifying scan and group delivery
+remain unverified in this build environment, which has no Telegram credentials.
+General bundle coverage remains unknown. Private tester invitations and the test
+week remain deferred.

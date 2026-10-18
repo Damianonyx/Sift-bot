@@ -2,13 +2,6 @@ name: Public discovery diagnostic
 
 on:
   workflow_dispatch:
-  push:
-    branches: [codex/live-discovery-check]
-    paths:
-      - '.github/workflows/live-discovery.yml'
-      - 'scripts/live-check.js'
-      - 'src/**'
-      - 'package.json'
 
 permissions:
   contents: read
@@ -26,30 +19,6 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
-      # One-time follow-up to run 39113161925: distinguish delayed launch
-      # indexing from failure on a previously indexed market-data control.
-      - name: Recheck observed mints and a market-data control
-        run: |
-          timeout 40s node --input-type=module <<'JS'
-          import { createMarketData } from './src/market.js';
-          import { setTimeout as delay } from 'node:timers/promises';
-          const market = createMarketData();
-          const signal = AbortSignal.timeout(35000);
-          for (const [kind, address] of [
-            ['observed_pump_event', '7QVsxWd2RaWxqhQGAswYrDR6A92jWwvqF36krRWJbxNN'],
-            ['observed_pump_event', 'BdBLNzhczGB9FRcrBencDc35HFXBG8RBiZDz7VApump'],
-            ['previous_manual_check_control', '5tCju6YNxHg5zrA6tGndr6F7TK42mpUFmeE31cSFpump']
-          ]) {
-            try {
-              const result = await market.check(address, { signal });
-              console.log(JSON.stringify({ kind, address, fetchedAt: result.fetchedAt,
-                supportedPools: result.poolCount, pool: result.selected?.address ?? null,
-                marketCap: result.selected?.marketCap ?? null, liquidityUsd: result.selected?.liquidityUsd ?? null,
-                approvedRuleMatchVerified: false }));
-            } catch { console.log(JSON.stringify({ kind, address, state: 'unavailable' })); }
-            await delay(3000, undefined, { signal });
-          }
-          JS
       # No secrets, Telegram delivery, AI calls, wallet or paid trade streams.
       # Exit 2 is an incomplete live observation, not a passing source check.
       - name: Observe public feeds and fetch candidate market data
