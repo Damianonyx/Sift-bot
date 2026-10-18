@@ -3,12 +3,14 @@ import { assertApprovable, describeRule } from './rules.js';
 import { criteriaKey } from './discovery-store.js';
 import { isSolanaAddress } from './market.js';
 import { ALERT_LIMIT, DISCOVERY_COVERAGE } from './discovery.js';
+import { formatSourceHealth } from './candidate-sources.js';
 
 const ISSUES = {
   RULES_CHANGED: 'Approved rules changed; review and start again.',
   FEED_UNAVAILABLE: 'Candidate feed unavailable. Coverage is interrupted.',
-  PARTIAL_COVERAGE: 'Some feed rows were invalid or outside this cycle’s limit.',
+  PARTIAL_COVERAGE: 'Some sources, events or candidates were unavailable, invalid or outside this cycle’s limit. Use /sources for coverage.',
   MARKET_UNAVAILABLE: 'Some market checks were unavailable; unknown data did not qualify.',
+  MARKET_NOT_INDEXED: 'Some candidates have no supported DEX Screener pool yet. Missing required data did not qualify; queued Pump.fun candidates can be checked again.',
   RISK_UNKNOWN: 'Required risk evidence is incomplete, unsupported or temporarily limited. These candidates did not qualify.',
   DELIVERY_ISSUE: 'An alert delivery failed or is uncertain. Use /alerts to inspect saved reports.',
   DELIVERY_LIMITED: 'Telegram delivery is rate-limited; some alerts are suppressed.',
@@ -119,11 +121,20 @@ export function createScanCommands({ agents, feed }) {
     }
     if (command === 'sources') {
       try {
-        const batch = await feed.read({ signal });
+        const batch = await feed.read({ signal, diagnostic: true });
+        if (batch.sources) return reply([
+          `Candidate sources: ${batch.candidates.length} distinct Solana candidates available for this cycle; ${batch.deferred} beyond the cycle limit.`,
+          formatSourceHealth(batch.sources),
+          batch.partial ? 'Coverage is partial. Stream connection alone does not prove event delivery; unavailable data is not an empty successful scan.' : '',
+          DISCOVERY_COVERAGE,
+          'Pump.fun candidates are retried from a bounded 20-minute queue while scanning. Launch events and virtual reserves do not establish USD liquidity, LP protection, developer holdings or bundle safety.',
+          'This checks source access only. It does not approve rules or activate scanning. A PumpPortal diagnostic connection lasts up to 30 seconds when no scan is active.',
+        ].filter(Boolean).join('\n\n'));
         return reply(`Candidate feed responded: ${batch.candidates.length} distinct Solana base-token candidates in ${batch.returnedPools} returned pools; ${batch.invalidPools} invalid pool rows excluded.\nFetched: ${new Date(batch.fetchedAt).toISOString()}${batch.cached ? ' (Sift feed cache; less than one minute old)' : ''}\n\n${DISCOVERY_COVERAGE}\n\nThis checks feed access only. It does not approve your rules or activate scanning.\nSource: ${batch.sourceUrl}`);
       } catch {
         if (signal?.aborted) return null;
-        return reply('The candidate feed is unavailable or temporarily limited. No conclusion about available matches can be drawn. Try /sources later; no paid fallback is enabled.');
+        return reply('The candidate feed is unavailable or temporarily limited. No conclusion about available matches can be drawn. Try /sources later; no paid fallback is enabled.' +
+          (feed.status().sources ? '\n\n' + formatSourceHealth(feed.status().sources) : ''));
       }
     }
     return null;

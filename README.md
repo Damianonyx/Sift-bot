@@ -5,9 +5,9 @@
 Sift is a private Telegram bot for personalised Solana memecoin discovery and
 monitoring: [@SiftAgentbot](https://t.me/SiftAgentbot).
 
-This branch continues `codex/risk-verification` from commit `549cd756`. It fixes
-Pump Fee CPI recognition and adds description-based criteria and admin-controlled
-group discovery alerts.
+This build continues `codex/agent-group-discovery` from commit `cace4930`, adding
+Pump.fun launch/migration candidates via PumpPortal to the existing description,
+risk-evidence and admin-controlled group discovery flows.
 **Unknown required checks never qualify a coin. General bundle coverage remains
 unknown, so the owner's complete risk policy cannot yet produce matching alerts.**
 The website redesign and public release remain deferred.
@@ -19,7 +19,8 @@ The website redesign and public release remain deferred.
 - Guided criteria, drafts, explicit review/approval and local SQLite persistence.
 - `/describe` turns supported descriptions into a draft with the original text
   retained. Optional OpenAI interpretation is disabled by default.
-- Bounded GeckoTerminal discovery; explicit activation, private reports, delivery
+- Bounded GeckoTerminal and Pump.fun discovery (PumpPortal launch/migration events);
+  explicit activation, private reports, delivery
   records, pause/resume/stop, dismissal and mute controls.
 - Fixed-pool USD-liquidity monitoring with captured market rules and controls.
 - LP burn verification for supported Raydium/PumpSwap accounts; narrow fixed-cliff
@@ -30,7 +31,7 @@ The website redesign and public release remain deferred.
 - Group admins configure privately, connect a destination in their group, then
   explicitly approve sharing future matches. Access is rechecked before posting.
 
-These additions have **146 passing offline tests** on Node.js 24.19.0. Fixtures
+The automated checks run on Node.js 24.19.0. Fixtures
 are synthetic; tests contact no providers or Telegram. Live source accuracy,
 new risk commands and end-to-end alert behavior still require owner acceptance.
 Earlier owner screenshots verified Telegram welcome/check replies and discovery
@@ -59,6 +60,7 @@ feed access; they did not verify these new risk claims or continuous hosting.
 | `/alerts`, `/unmute <CA>` | Saved discovery reports and token unmute |
 
 Start with the [description and group setup guide](docs/agent-discovery.md).
+See [Pump.fun scouting and its coverage limits](docs/pumpfun-discovery.md).
 In groups, `/group@SiftAgentbot connect` prepares a connection and
 `/group@SiftAgentbot stop` stops sharing. Sift and the connecting tester must be
 group admins. Other group messages are ignored; adding the bot starts nothing.
@@ -135,8 +137,13 @@ and database use restrictive permissions; the database is not encrypted. Keep
 with the same database preserves state; deleting the runtime/database loses it.
 Corrupt state stops the bot rather than replacing user settings.
 
-Discovery checks at most 20 candidates from the first new-pools feed page per
-cycle. Market checks share a three-second cooldown; the feed has a one-minute
+Discovery checks at most 20 distinct candidates per cycle, interleaving the first
+GeckoTerminal new-pools page with a bounded Pump.fun event queue. PumpPortal's
+free launch/migration subscriptions are enabled by default; no key or wallet is
+used. The stream connects only for approved active scans or short `/sources`
+diagnostics. It retains at most 200 candidates for 20 minutes in memory, rotating
+attempted candidates for indexing retries. Dropped events and gaps remain visible.
+Market checks share a three-second cooldown; GeckoTerminal has a one-minute
 cache. Risk checks have a one-minute cooldown and a 45-second deadline, so not
 all candidates receive chain evidence. Unknown/limited evidence cannot match.
 Source limits and slow calls extend cycle times; there is no downtime catch-up.
