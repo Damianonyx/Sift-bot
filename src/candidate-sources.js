@@ -4,6 +4,20 @@ import { METEORA_PROTOCOLS } from './meteora.js';
 export const CANDIDATE_LIMIT = 20;
 export const DISCOVERY_COVERAGE = 'Solana · GeckoTerminal first new-pools page; Pump.fun launch/migration events via PumpPortal; Meteora DLMM/DAMM v2 first 20 new pools each (both token mints), when enabled. Up to 20 distinct candidates per cycle. DEX Screener supplies market checks; missing required metrics cannot pass. Meteora DBC before migration and DAMM v1 are not directly covered. Feed limits, gaps and downtime can miss launches. Provider update time is unknown.';
 
+export function formatPumpObservation(observation) {
+  if (!observation) return '';
+  const elapsed = (observation.durationMs / 1000).toFixed(1);
+  const outcomes = {
+    events_received: `${observation.validMessages} valid launch/migration message(s) arrived during this check.`,
+    no_event_observed: 'No valid launch/migration event arrived during this check. Event delivery remains unverified; this does not mean no coins launched.',
+    unavailable: 'Connection failed or is waiting to retry. Event delivery is not verified by this check.',
+    disabled: 'Feed disabled; no observation attempted.', stopped: 'Feed stopped; observation incomplete.',
+  };
+  return `PumpPortal observation (${elapsed}s): ${outcomes[observation.outcome] ?? 'Incomplete.'}\n` +
+    `Control messages: ${observation.controlMessages}; invalid messages: ${observation.rejected}; connection gaps: ${observation.interruptions}.\n` +
+    `Observed at: ${new Date(observation.completedAt).toISOString()}`;
+}
+
 export function formatSourceHealth(sources) {
   return sources.map((source) => {
     if (source.source === 'pumpportal') {
@@ -33,7 +47,8 @@ export function createCandidateSources({ gecko, pump, meteora, now = Date.now })
     selected: (candidates) => { pump.selected(candidates); meteora?.selected(candidates); },
     async read({ signal, diagnostic = false } = {}) {
       if (signal?.aborted) throw new DiscoveryFeedError('STOPPED');
-      const [g, p, m] = await Promise.allSettled([gecko.read({ signal }), pump.read({ signal, diagnostic }), meteora?.read({ signal })]);
+      const [g, p, m] = await Promise.allSettled([gecko.read({ signal }),
+        diagnostic ? pump.observe({ signal }) : pump.read({ signal }), meteora?.read({ signal })]);
       if (signal?.aborted) throw new DiscoveryFeedError('STOPPED');
       lastGecko = g.status === 'fulfilled' ? { state: 'responded', checkedAt: g.value.fetchedAt } :
         { state: 'unavailable', checkedAt: now() };
@@ -45,6 +60,7 @@ export function createCandidateSources({ gecko, pump, meteora, now = Date.now })
       }
       if (signal?.aborted) throw new DiscoveryFeedError('STOPPED');
       const pumpReady = pumpBatch?.health.state === 'receiving';
+      const pumpObservation = diagnostic && p.status === 'fulfilled' ? p.value.observation : null;
       const meteoraBatch = m.status === 'fulfilled' ? m.value : null;
       const meteoraReady = meteoraBatch?.sources.some((s) => s.state === 'responded');
       if (g.status !== 'fulfilled' && !pumpReady && !meteoraReady) throw new DiscoveryFeedError('SOURCES_UNAVAILABLE');
@@ -65,10 +81,11 @@ export function createCandidateSources({ gecko, pump, meteora, now = Date.now })
         }
       }
       const candidates = [...merged.values()].slice(0, CANDIDATE_LIMIT);
-      return { candidates, fetchedAt: now(), sources: status().sources,
+      return { candidates, fetchedAt: now(), sources: status().sources, pumpObservation,
         deferred: Math.max(0, merged.size - candidates.length), invalidPools: (geckoBatch?.invalidPools ?? 0) + (meteoraBatch?.invalidPools ?? 0),
         partial: !geckoBatch || !pumpBatch || pumpBatch.partial || Boolean(geckoBatch.invalidPools) ||
-          Boolean(meteora && (!meteoraBatch || meteoraBatch.partial)) || merged.size > CANDIDATE_LIMIT };
+          Boolean(meteora && (!meteoraBatch || meteoraBatch.partial)) || merged.size > CANDIDATE_LIMIT ||
+          Boolean(pumpObservation && !['events_received', 'disabled'].includes(pumpObservation.outcome)) };
     },
   };
 }

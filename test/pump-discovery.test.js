@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { createPumpFeed, normalisePumpEvent, readPumpConfig, PUMP_STREAM_URL, PUMP_TTL_MS, PUMP_CAPACITY } from '../src/pump-feed.js';
-import { createCandidateSources } from '../src/candidate-sources.js';
+import { createPumpFeed, normalisePumpEvent, readPumpConfig, PUMP_STREAM_URL, PUMP_TTL_MS, PUMP_CAPACITY, PUMP_OBSERVATION_MS } from '../src/pump-feed.js';
+import { createCandidateSources, formatPumpObservation } from '../src/candidate-sources.js';
 import { createDiscoveryFeed, FEED_URL } from '../src/discovery-feed.js';
 import { createDiscoveryRunner, formatDiscoveryAlert } from '../src/discovery.js';
 import { createResponder } from '../src/commands.js';
@@ -28,7 +28,7 @@ class Socket extends EventTarget {
 function fixture(options = {}) {
   let time = NOW;
   const sockets = [];
-  const pump = createPumpFeed({ ...options, now: () => time, socketFactory: (url) => {
+  const pump = createPumpFeed({ observationWait: async (ms) => { time += ms; }, ...options, now: () => time, socketFactory: (url) => {
     assert.equal(url, PUMP_STREAM_URL);
     const socket = new Socket(); sockets.push(socket); return socket;
   } });
@@ -112,6 +112,119 @@ test('diagnostics have a short lease, disabled configuration and cancelled reads
   await disabled.pump.read({ diagnostic: true }); disabled.pump.tick(true);
   assert.equal(disabled.sockets.length, 0);
   assert.equal(disabled.pump.status().state, 'disabled');
+});
+
+test('observation waits for a valid event after connection and control messages, without opening another socket', async () => {
+  let waits = 0;
+  const f = fixture({ observationWait: async (ms) => {
+    f.advance(ms); waits++;
+    if (waits === 1) f.sockets[0].open();
+    if (waits === 2) f.sockets[0].message({ message: 'Successfully subscribed to token creation events.' });
+    if (waits === 3) f.sockets[0].message(event());
+  } });
+  const result = await f.pump.observe();
+  assert.equal(f.sockets.length, 1); assert.equal(waits, 3);
+  assert.equal(result.observation.outcome, 'events_received');
+  assert.equal(result.observation.validMessages, 1);
+  assert.equal(result.observation.controlMessages, 1);
+  assert.equal(result.observation.durationMs, 750);
+  assert.deepEqual(result.candidates.map((c) => c.address), [mint(1)]);
+  assert.match(formatPumpObservation(result.observation), /arrived during this check/);
+  f.pump.close();
+});
+
+test('control-only and old queued events cannot prove delivery during the new observation window', async () => {
+  for (const queued of [false, true]) {
+    const f = fixture(), socket = f.connect();
+    if (queued) socket.message(event());
+    socket.message({ message: 'Subscribed' });
+    const result = await f.pump.observe();
+    assert.equal(result.observation.outcome, 'no_event_observed');
+    assert.equal(result.observation.validMessages, 0);
+    assert.equal(result.observation.controlMessages, 0); // Prior control is not new evidence either.
+    assert.equal(result.observation.durationMs, PUMP_OBSERVATION_MS);
+    assert.equal(result.candidates.length, queued ? 1 : 0);
+    assert.match(formatPumpObservation(result.observation), /delivery remains unverified/);
+    f.pump.close();
+  }
+});
+
+test('observation exposes invalid messages and disconnects, and respects reconnect backoff', async () => {
+  let waits = 0;
+  const f = fixture({ observationWait: async (ms) => {
+    f.advance(ms); waits++;
+    if (waits === 1) { f.sockets[0].open(); f.sockets[0].message(event(1, { mint: 'bad' })); }
+    else f.sockets[0].error();
+  } });
+  const first = await f.pump.observe();
+  assert.equal(first.observation.outcome, 'unavailable');
+  assert.equal(first.observation.rejected, 1); assert.equal(first.observation.interruptions, 1);
+  assert.equal(first.observation.validMessages, 0); assert.equal(first.candidates.length, 0);
+  const second = await f.pump.observe();
+  assert.equal(second.observation.outcome, 'unavailable');
+  assert.equal(f.sockets.length, 1); assert.equal(waits, 2);
+  f.pump.close();
+});
+
+test('cancelled, disabled and stopped observations do not report success or open extra sockets', async () => {
+  const c = new AbortController(); c.abort();
+  const unopened = fixture();
+  await assert.rejects(unopened.pump.observe({ signal: c.signal }));
+  assert.equal(unopened.sockets.length, 0);
+  const cancel = new AbortController();
+  const f = fixture({ observationWait: async () => { cancel.abort(); throw new Error('private abort detail'); } });
+  await assert.rejects(f.pump.observe({ signal: cancel.signal }), (e) => !e.message.includes('private'));
+  f.pump.close();
+  assert.equal((await f.pump.observe()).observation.outcome, 'stopped');
+  assert.equal(f.sockets.length, 1);
+  const disabled = fixture({ enabled: false });
+  assert.equal((await disabled.pump.observe()).observation.outcome, 'disabled');
+  assert.equal(disabled.sockets.length, 0);
+});
+
+test('/sources reports observed events while preserving a blocked draft and stopped scan', async (t) => {
+  const store = storeFor(t);
+  store.put(42, { revision: 1, approved: null, draft: { name: 'SYNTHETIC', step: 6, rules: [cap], pendingRequirements: ['Unverified locks'] } });
+  const before = store.get(42), scan = store.discoveryGet(42);
+  const f = fixture({ observationWait: async (ms) => {
+    f.advance(ms); f.sockets[0].open(); f.sockets[0].message(event());
+  } }); t.after(() => f.pump.close());
+  const feed = createCandidateSources({ gecko: gecko([mint(2)]), pump: f.pump, now: f.now });
+  const reply = await createResponder({ agents: store, feed })(input('/sources'), new Set([42]));
+  assert.match(reply.text, /1 valid launch\/migration message\(s\) arrived during this check/);
+  assert.match(reply.text, /does not approve rules or activate scanning/);
+  assert.deepEqual(store.get(42), before); assert.deepEqual(store.discoveryGet(42), scan);
+  assert.ok(reply.text.length < 4000);
+});
+
+test('ordinary scan reads remain immediate; a quiet manual observation remains partial even with an existing queue', async () => {
+  let waits = 0;
+  const f = fixture({ observationWait: async (ms) => { waits++; f.advance(ms); } });
+  const socket = f.connect(); socket.message(event());
+  const feed = createCandidateSources({ gecko: gecko(), pump: f.pump, now: f.now });
+  assert.equal((await feed.read()).partial, false); assert.equal(waits, 0);
+  const diagnostic = await feed.read({ diagnostic: true });
+  assert.equal(diagnostic.partial, true);
+  assert.equal(diagnostic.pumpObservation.outcome, 'no_event_observed');
+  assert.equal(waits, 40);
+  assert.equal((await feed.read()).partial, false); assert.equal(waits, 40);
+  f.pump.close();
+});
+
+test('disconnect after an observed event during the HTTP wait cannot feed a stale candidate', async () => {
+  let release;
+  const slow = new Promise((resolve) => { release = resolve; });
+  const f = fixture({ observationWait: async (ms) => { f.advance(ms); f.sockets[0].open(); f.sockets[0].message(event()); } });
+  const feed = createCandidateSources({ pump: f.pump, now: f.now, gecko: { ...missingGecko, read: () => slow } });
+  const pending = feed.read({ diagnostic: true });
+  // Let the observation finish, while the HTTP feed is still pending.
+  await new Promise((resolve) => setImmediate(resolve));
+  f.sockets[0].error(); release({ fetchedAt: f.now(), candidates: [], invalidPools: 0 });
+  const result = await pending;
+  assert.deepEqual(result.candidates, []); assert.equal(result.partial, true);
+  assert.equal(result.pumpObservation.outcome, 'events_received');
+  assert.equal(result.sources.find((s) => s.source === 'pumpportal').state, 'unavailable');
+  f.pump.close();
 });
 
 test('disconnects discard stale batches, back off, ignore late events and accept new events after reconnection', async () => {

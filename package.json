@@ -12,6 +12,7 @@
     "test": "node --test --test-isolation=none test/*.test.js",
     "preflight": "node --env-file-if-exists=.env scripts/preflight.js",
     "check:live": "node --use-env-proxy --env-file-if-exists=.env scripts/live-check.js",
-    "check:sources": "node --use-env-proxy scripts/source-audit.js"
+    "check:sources": "node --use-env-proxy scripts/source-audit.js",
+    "check:feeds": "node --use-env-proxy --env-file-if-exists=.env scripts/feed-observation.js"
   }
 }

@@ -9,6 +9,7 @@ export const PUMP_CAPACITY = 200;
 const MAX_MESSAGE_BYTES = 64 * 1024;
 const SILENCE_MS = 90_000;
 const DIAGNOSTIC_MS = 30_000;
+export const PUMP_OBSERVATION_MS = 10_000;
 
 export function readPumpConfig(env) {
   const value = env.SIFT_PUMPFUN_ENABLED ?? 'true';
@@ -27,11 +28,12 @@ export function normalisePumpEvent(raw, receivedAt) {
 }
 
 export function createPumpFeed({ enabled = true, socketFactory = (url) => new WebSocket(url), now = Date.now,
-  wait = delay } = {}) {
+  wait = delay, observationWait = delay } = {}) {
   let socket = null, state = enabled ? 'idle' : 'disabled', stopped = false;
   let connectedAt = null, lastEventAt = null, nextConnectAt = 0, failures = 0, leaseUntil = 0;
   let rejected = 0, dropped = 0, expired = 0, interruptions = 0;
   let messagesReceived = 0, controlMessages = 0, lastMessageAt = null;
+  let validMessages = 0;
   const queue = new Map();
   let turn = 0;
 
@@ -99,6 +101,7 @@ export function createPumpFeed({ enabled = true, socketFactory = (url) => new We
       if (typeof raw?.message === 'string' && raw.txType === undefined) { controlMessages++; return; }
       const candidate = normalisePumpEvent(raw, now());
       if (!candidate) { rejected++; return; }
+      validMessages++;
       state = 'receiving';
       lastEventAt = now();
       failures = 0;
@@ -124,7 +127,7 @@ export function createPumpFeed({ enabled = true, socketFactory = (url) => new We
       prune();
       return { source: 'pumpportal', sourceUrl: PUMP_SOURCE_URL, state, checkedAt: lastEventAt,
         candidateCount: queue.size, rejected, dropped, expired, interruptions,
-        messagesReceived, controlMessages, lastMessageAt,
+        messagesReceived, controlMessages, validMessages, lastMessageAt,
         retryAt: state === 'unavailable' ? nextConnectAt : null };
     },
     // Called by the runtime once per second; /sources grants a short diagnostic
@@ -153,6 +156,34 @@ export function createPumpFeed({ enabled = true, socketFactory = (url) => new We
         .map((entry) => structuredClone(entry.candidate)) : [], fetchedAt: now(),
       sourceUrl: PUMP_SOURCE_URL, health,
       partial: enabled && (state !== 'receiving' || rejected > 0 || dropped > 0 || interruptions > 0) };
+    },
+    async observe({ signal } = {}) {
+      if (signal?.aborted) throw new Error('Pump observation stopped.');
+      const startedAt = now();
+      const before = { validMessages, controlMessages, rejected, interruptions };
+      // Shares the runtime's sole socket and queue. Existing queue entries and
+      // subscription acknowledgements cannot prove delivery during this check.
+      await service.read({ signal, diagnostic: true });
+      const deadline = AbortSignal.timeout(PUMP_OBSERVATION_MS);
+      const observationSignal = signal ? AbortSignal.any([signal, deadline]) : deadline;
+      try {
+        while (enabled && !stopped && state !== 'unavailable' && validMessages === before.validMessages &&
+            now() - startedAt < PUMP_OBSERVATION_MS && !deadline.aborted) {
+          service.tick();
+          if (state === 'unavailable') break;
+          await observationWait(250, undefined, { signal: observationSignal });
+        }
+      } catch {
+        if (!deadline.aborted || signal?.aborted) throw new Error('Pump observation stopped.');
+      }
+      if (signal?.aborted) throw new Error('Pump observation stopped.');
+      const observed = validMessages - before.validMessages;
+      const observation = { startedAt, completedAt: now(), durationMs: Math.max(0, now() - startedAt),
+        validMessages: observed, controlMessages: controlMessages - before.controlMessages,
+        rejected: rejected - before.rejected, interruptions: interruptions - before.interruptions,
+        outcome: !enabled ? 'disabled' : stopped ? 'stopped' : state === 'unavailable' ? 'unavailable' :
+          observed > 0 ? 'events_received' : 'no_event_observed' };
+      return { ...await service.read({ signal }), observation };
     },
     selected(candidates) {
       for (const candidate of candidates) {

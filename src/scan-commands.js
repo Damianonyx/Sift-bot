@@ -3,7 +3,7 @@ import { assertApprovable, describeRule } from './rules.js';
 import { criteriaKey } from './discovery-store.js';
 import { isSolanaAddress } from './market.js';
 import { ALERT_LIMIT, DISCOVERY_COVERAGE } from './discovery.js';
-import { formatSourceHealth } from './candidate-sources.js';
+import { formatSourceHealth, formatPumpObservation } from './candidate-sources.js';
 import { withCopyableCAs } from './telegram-format.js';
 
 const ISSUES = {
@@ -126,10 +126,11 @@ export function createScanCommands({ agents, feed }) {
         if (batch.sources) return reply([
           `Candidate sources: ${batch.candidates.length} distinct Solana candidates available for this cycle; ${batch.deferred} beyond the cycle limit.`,
           formatSourceHealth(batch.sources),
+          formatPumpObservation(batch.pumpObservation),
           batch.partial ? 'Coverage is partial. Stream connection alone does not prove event delivery; unavailable data is not an empty successful scan.' : '',
           DISCOVERY_COVERAGE,
           'Pump.fun candidates are retried from a bounded 20-minute queue while scanning. Launch events and virtual reserves do not establish USD liquidity, LP protection, developer holdings or bundle safety.',
-          'This checks source access only. It does not approve rules or activate scanning. A PumpPortal diagnostic connection lasts up to 30 seconds when no scan is active.',
+          'This checks source access only. It does not approve rules or activate scanning. The check waits up to 10 seconds for a PumpPortal event. Without an active scan, the diagnostic connection closes after its 30-second window.',
         ].filter(Boolean).join('\n\n'));
         return reply(`Candidate feed responded: ${batch.candidates.length} distinct Solana base-token candidates in ${batch.returnedPools} returned pools; ${batch.invalidPools} invalid pool rows excluded.\nFetched: ${new Date(batch.fetchedAt).toISOString()}${batch.cached ? ' (Sift feed cache; less than one minute old)' : ''}\n\n${DISCOVERY_COVERAGE}\n\nThis checks feed access only. It does not approve your rules or activate scanning.\nSource: ${batch.sourceUrl}`);
       } catch {
