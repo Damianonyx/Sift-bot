@@ -32,8 +32,16 @@ paid fallback is configured. Existing hosting and optional AI costs are separate
 
 - An allowed user's active scan, with matching approved supported rules, keeps
   one shared connection open. No connection is made just by starting an idle bot.
-- `/sources` can open the connection for a 30-second diagnostic lease. It does
-  not approve rules, activate a scan, change thresholds or send candidate alerts.
+- `/sources` can open the connection for a 30-second diagnostic lease. Before
+  replying, it observes the shared stream for up to **10 seconds**, ending early
+  on a valid launch/migration message, a connection failure or shutdown. It
+  reports the elapsed time and counts of valid, control and invalid messages.
+  Existing queue entries and subscription acknowledgements do not count as
+  delivery during this observation. A quiet window remains unverified, not proof
+  that no coins launched. Other source reads run concurrently; background scan
+  reads do not acquire this extra wait. Private replies share the polling loop,
+  so another command can wait behind this bounded diagnostic.
+  It does not approve rules, activate a scan, change thresholds or send alerts.
 - If all scans stop, pause or lose access, the runtime closes the stream within
   about one second, except for any remaining diagnostic lease.
 - `/status` is passive. It shows whether the stream is idle, connecting, waiting
@@ -85,12 +93,23 @@ is silently removed to make a Pump.fun candidate qualify.
 
 ### Run the live check in Codespaces
 
+Open the [existing Codespace](https://effective-carnival-wr5j9v5g9775c95q9.github.dev/).
 Stop any other Sift process first, keeping one PumpPortal connection at a time.
 On Node.js 24, from the repository terminal, run:
 
 ```sh
 npm run check:live
 ```
+
+For just the same observation used by Telegram `/sources`, run
+`npm run check:feeds` instead. This checks PumpPortal, GeckoTerminal and both
+enabled Meteora feeds, without checking market prices or sending messages. It
+has a 15-second cancellation deadline and a 20-second process limit. Exit 0
+means an event was observed and the enabled HTTP feeds responded; exit 2 means
+an incomplete observation. Candidate-cap suppression is reported separately.
+The **Public feed observation** GitHub Actions workflow runs this command,
+manual-only in the final build; it has no repository secrets. Manual dispatch
+requires the workflow to be available on the repository's default branch.
 
 The command observes up to two distinct launch/migration candidates for up to
 30 seconds, reads the GeckoTerminal feed and checks at most three distinct mints
@@ -138,6 +157,18 @@ observation makes that workflow fail; the offline test workflow remains separate
 There is no scheduled polling or continuous bot deployment in this workflow.
 
 ### Current evidence
+
+On **October 21, 2026**, the revised observation received one valid PumpPortal
+creation message after **3.263 seconds**, alongside two control messages and
+zero rejected messages or connection gaps. GeckoTerminal and both Meteora APIs
+responded. The [public check](https://github.com/Damianonyx/Sift-bot/actions/runs/39625212647)
+passed using commit `5617d030`; the
+[recorded JSON](evidence/feed-observation-2026-10-21.json) retains the observed
+CA, reported transaction signature, timestamps and counts. The shared cycle
+contained 20 candidates with 37 beyond the cap, so coverage remained partial.
+This is evidence of event receipt on a GitHub runner, not continuous delivery in
+the owner's Codespace, on-chain validation of the event, market accuracy, or
+qualification under the owner's full strategy. No Telegram message was sent.
 
 Automated checks use synthetic events and mocked transport. They cover feed
 lifecycle, reconnection, queue bounds, deduplication, partial outages, permissions,

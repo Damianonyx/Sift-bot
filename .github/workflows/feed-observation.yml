@@ -1,9 +1,6 @@
 name: Public feed observation
 on:
   workflow_dispatch:
-  push:
-    branches: [codex/live-discovery-check]
-    paths: [.github/workflows/feed-observation.yml]
 permissions:
   contents: read
 concurrency:

@@ -68,6 +68,10 @@ feed access; they did not verify these new risk claims or continuous hosting.
 Start with the [description and group setup guide](docs/agent-discovery.md).
 See [Pump.fun scouting and its coverage limits](docs/pumpfun-discovery.md) and
 [data-source verification with recorded live results](docs/source-verification.md).
+`/sources` now observes PumpPortal for up to 10 seconds before replying. It
+distinguishes a valid event received during the check from a quiet or failed
+observation; existing queued candidates and control messages cannot prove new
+delivery. A live check on October 21 received a creation message in 3.263 seconds.
 The source samples found a large market-cap disagreement and a missing pool
 comparison; they do not establish uniform accuracy. Bubblemaps is deferred; no
 paid integration was added.
