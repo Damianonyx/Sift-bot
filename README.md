@@ -30,8 +30,12 @@ The website redesign and public release remain deferred.
 - Fixed-pool USD-liquidity monitoring with captured market rules and controls.
 - LP burn verification for supported Raydium/PumpSwap accounts; narrow fixed-cliff
   Streamflow lock verification for classic SPL LP tokens with exact coverage.
-- Classic Pump signing-creator attribution, current holdings, direct PumpSwap
+- Pump `create` and supported `create_v2` signing-creator attribution, current holdings, direct PumpSwap
   sales, separate transfers, confirmed atomic coordinated buys and same-slot flags.
+- Launch signatures used as locators for finalized creation proof; per-address
+  transaction sample counts and reserved capacity for pool activity checks.
+- Read-only **Verification limits** controls in `/agent` and `/scan`; unmapped
+  extra instructions stay saved and continue to block approval.
 - Read-only verification of a supplied Jito bundle ID against finalized on-chain buys.
 - Group admins configure privately, connect a destination in their group, then
   explicitly approve sharing future matches. Access is rechecked before posting.
@@ -89,6 +93,8 @@ suspicions are flagged. Unknown required evidence blocks qualification.
 button creates a draft; approval and scan activation remain separate. Existing
 market thresholds are retained. Nothing automatically discards old instructions,
 approves rules, starts scans or invites testers. Editing preserves risk rules.
+The replacement policy covers one selected pool, not every pool for a token.
+Use **Verification limits** to review the difference without changing your draft.
 
 Read [risk evidence and coverage](docs/risk-evidence.md) before testing. Complete
 bundle coverage is unavailable; no lack of observed sales/bundles is treated as

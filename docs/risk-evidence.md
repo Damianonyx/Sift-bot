@@ -28,6 +28,13 @@ revision-bound button explicitly replaces those extras in a **draft**. The marke
 rules and name are retained. Review and approval are separate, as is `/scan`
 activation. Existing drafts and approved settings are never auto-migrated.
 
+The **Verification limits** button in `/agent` and `/scan` explains unmapped
+instructions, supported evidence and incomplete coverage without changing rules,
+approval or scanning. It is private, owner-only and revision-bound. A request
+for 100% protection across **all pools** is broader than this selected-pool
+policy. `/riskrules` is an explicit replacement, not a lossless interpretation
+of that request. Keep the original draft when the scopes differ.
+
 The general bundle requirement currently remains unknown, so **the complete
 policy cannot produce a qualifying discovery alert**. Even a bare adapter result
 claiming `pass` for bundle coverage is rejected by the evaluator. Adding a future
@@ -73,17 +80,27 @@ not attest deployed bytecode, remove upgrade authority or establish token safety
 
 `/risk <CA>` combines supported liquidity evidence with:
 
-- Attribution from a successful **classic Pump `create` instruction** whose
+- Attribution from a successful **Pump `create` or supported `create_v2` instruction** whose
   creator argument equals the signing `user`, with the token mint also signing.
   Fee recipients, mutable `coin_creator` fields, pool creators, metadata URLs
-  and token-name suffixes are not accepted as developer attribution. Create-v2,
-  other launch programs and delegated creation remain unknown.
+  and token-name suffixes are not accepted as developer attribution. Account
+  layouts and program addresses must match the pinned Pump IDL. For `create_v2`,
+  the supported argument tail after the creator is `bool`, `OptionBool(bool)`,
+  `OptionU64(u64)`, `OptionBool(bool)`: exactly 11 bytes, with valid booleans.
+  These wrappers are structs, not Borsh option tags. Other tails, launch programs
+  and delegated creation remain unknown. Creation flags are not risk verdicts.
+- During discovery, a same-mint PumpPortal **creation** signature received within
+  the 20-minute queue window can locate that transaction directly. It must still
+  resolve through finalized RPC to a successful, matching, signed creation.
+  Feed creator labels and migration signatures never establish attribution.
+  Unverified locators fall back to sampled mint history; manual checks use that
+  history when no candidate locator is supplied.
 - Finalized `getTokenAccountsByOwner` balances for that creator and exact mint,
   including all accounts in the bounded response. Empty complete responses mean
   zero; malformed, missing, stale or failed responses mean unknown.
 - Direct top-level PumpSwap buys/sells with matching program/instruction, mint,
   signing user, vault ownership and base/quote transfers within the same invocation.
-  Unsupported routed/nested swaps are not labelled verified sales. Other observed
+  Bonding-curve sales and unsupported routed/nested swaps are not labelled verified sales. Other observed
   outgoing token transfers are separate events. Amounts are raw token units.
 - Two distinct signing buyers executing verified buys within one atomic
   transaction count as confirmed coordinated buying. This is an execution fact,
@@ -91,9 +108,16 @@ not attest deployed bytecode, remove upgrade authority or establish token safety
   buyers in separate transactions in the same slot are only a suspicion.
 
 History is a **sample**, not an exhaustive history: at most 20 recent signatures
-for each inspected mint, creator and pool, with 40 wallet/pool transaction reads
-in total. LP burn verification separately permits 20 reads. Transactions are
-shared only within that one risk check. Creation beyond the bounded sample,
+for each inspected mint, creator and pool, with 40 creation/wallet/pool transaction
+reads in total, including a direct launch lookup. Mint history leaves 20 reads
+available; creator history leaves 10 available for pool activity. With a verified
+direct creation lookup, recent mint enumeration is unnecessary. LP burn
+verification separately permits 20 reads. Transactions, including failed lookups,
+are shared only within that one risk check. Each report shows signatures returned,
+verified transaction bodies, failed transactions excluded, missing/invalid bodies,
+and omissions due to budget or interruption. A source error retains already
+verified evidence but marks the sample interrupted or unavailable. Even a fully
+read 20-signature page is not complete history. Creation beyond the bounded sample,
 missing transaction bodies and RPC history pruning leave attribution unknown.
 No sample with no sales becomes “never sold”; no sample with no suspicious buys
 becomes “bundle-free”. Other wallets, closed token accounts and venues are not
@@ -147,7 +171,7 @@ manual check does not persist a new rule or silently change a running scan.
 - [Streamflow Rust metadata and custody layout](https://github.com/streamflow-finance/rust-sdk/blob/63df7d7b831340daa27f31d007eec2a98380364c/programs/streamflow-sdk/src/state.rs)
 - [Streamflow JS layout](https://github.com/streamflow-finance/js-sdk/blob/fb236fff325ab02d7ff5d0ff5e393be8934cda9d/packages/stream/solana/layout.ts)
 - [Streamflow transfer authority usage](https://github.com/streamflow-finance/js-sdk/blob/fb236fff325ab02d7ff5d0ff5e393be8934cda9d/packages/stream/solana/StreamClient.ts)
-- [Pump creation IDL](https://github.com/pump-fun/pump-public-docs/blob/2293f9a66c654e9fe82dc5e8f4618538f24bb35f/idl/pump.json)
+- [Pump creation IDL](https://github.com/pump-fun/pump-public-docs/blob/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/idl/pump.json)
 - [PumpSwap instruction IDL](https://github.com/pump-fun/pump-public-docs/blob/2293f9a66c654e9fe82dc5e8f4618538f24bb35f/idl/pump_amm.json)
 - [Jito bundle status contract](https://docs.jito.wtf/lowlatencytxnsend/#getbundlestatuses)
 

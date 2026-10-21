@@ -5,6 +5,7 @@ import { isSolanaAddress } from './market.js';
 import { ALERT_LIMIT, DISCOVERY_COVERAGE } from './discovery.js';
 import { formatSourceHealth, formatPumpObservation } from './candidate-sources.js';
 import { withCopyableCAs } from './telegram-format.js';
+import { verificationLimitsButton } from './risk-capabilities.js';
 
 const ISSUES = {
   RULES_CHANGED: 'Approved rules changed; review and start again.',
@@ -89,7 +90,10 @@ export function createScanCommands({ agents, feed }) {
         DISCOVERY_COVERAGE,
         `Private test limits: roughly one cycle/minute, up to ${ALERT_LIMIT} new alerts per cycle per user. Extra matches may be delayed or missed; /scan shows suppression. Quiet hours are not implemented.`,
         'Only approved supported rules are applied. Risk checks have limited coverage; unknown bundle coverage blocks the full risk policy. Market monitoring is separate: use /watch. Unknown required metrics cannot pass. An unapproved edit does not change a running scan’s previously approved rules.',
-      ].filter(Boolean).join('\n\n'), !reason && scan.state !== 'active' ? [[button('Start discovery', id, 'start', saved.revision)]] : undefined);
+      ].filter(Boolean).join('\n\n'), [
+        ...(!reason && scan.state !== 'active' ? [[button('Start discovery', id, 'start', saved.revision)]] : []),
+        ...verificationLimitsButton(saved,id),
+      ]);
     }
     if (['pause', 'resume', 'stop', 'unmute'].includes(command)) {
       return agents.process(update.update_id, () => {

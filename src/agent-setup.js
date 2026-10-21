@@ -2,6 +2,7 @@ import { commandFor } from './bot.js';
 import { RULE_FIELDS, describeRule, assertApprovable } from './rules.js';
 import { TEST_RISK_RULES, RISK_FIELDS } from './risk.js';
 import { descriptionReview } from './description-commands.js';
+import { verificationLimitsButton, verificationLimitsView } from './risk-capabilities.js';
 
 const QUESTIONS = [
   'Give your agent a name (1–32 characters).',
@@ -46,7 +47,10 @@ function button(text, action, id, revision) {
 }
 
 function view(state, id) {
-  if (state.draft?.interpretation) return descriptionReview(state,id);
+  if (state.draft?.interpretation) {
+    const review = descriptionReview(state,id);
+    return { ...review, reply_markup:{ inline_keyboard:[...(review.reply_markup?.inline_keyboard ?? []), ...verificationLimitsButton(state,id)] } };
+  }
   const reply = (text, buttons = []) => ({ chat_id: id, text,
     ...(buttons.length ? { reply_markup: { inline_keyboard: buttons } } : {}) });
   if (state.draft && state.draft.step < QUESTIONS.length) {
@@ -79,7 +83,7 @@ function view(state, id) {
     ...(state.draft && !approvalError ? [button('Approve rules', 'approve', id, state.revision)] : []),
     button('Edit rules', 'edit', id, state.revision),
     ...(state.draft ? [button('Discard draft', 'cancel', id, state.revision)] : []),
-  ]]);
+  ], ...verificationLimitsButton(state,id)]);
 }
 
 export function createAgentSetup(store) {
@@ -92,12 +96,13 @@ export function createAgentSetup(store) {
           typeof callback.id !== 'string' || typeof callback.data !== 'string') return null;
       const acknowledge = (notice) => ({ callbackQueryId: callback.id, callbackNotice: notice });
       if (!allowedUserIds.has(id)) return acknowledge('Sift is in private testing.');
-      const match = /^agent:([1-9]\d*):(skip|cancel|approve|edit|risk):(\d+)$/.exec(callback.data);
+      const match = /^agent:([1-9]\d*):(skip|cancel|approve|edit|risk|limits):(\d+)$/.exec(callback.data);
       if (!match || Number(match[1]) !== id) return acknowledge('This button does not belong to your agent.');
       return store.process(update.update_id, () => {
         const state = store.get(id);
         if (state.revision !== Number(match[3])) return acknowledge('This button is out of date. Use /agent for the current rules.');
         const action = match[2];
+        if (action === 'limits') return { ...verificationLimitsView(state,id), ...acknowledge('Saved rules unchanged.') };
         if (action === 'risk') {
           const previous = state.draft ?? state.approved;
           if (!previous || (state.draft && state.draft.step !== QUESTIONS.length)) return acknowledge('Complete the current setup first.');

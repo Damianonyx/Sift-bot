@@ -81,7 +81,7 @@ export function evaluateRules(rules, snapshot, { now = Date.now(), requireStrict
 
 export function assertApprovable(agent) {
   if (!Array.isArray(agent.pendingRequirements) || agent.pendingRequirements.length) {
-    throw new Error('Approval blocked: extra requirements still need clarification and supported checks.');
+    throw new Error('Approval blocked: extra instructions have not been mapped to supported checks. Saved instructions are unchanged.');
   }
   validateRules(agent.rules);
 }

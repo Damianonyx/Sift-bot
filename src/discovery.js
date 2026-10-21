@@ -89,7 +89,7 @@ export function createDiscoveryRunner({ feed, market, agents, risk, groups, call
         // Avoid expensive chain reads for candidates already failing required market rules.
         return evaluateAgent(approved,snapshot,{ now:now() }).checks.filter((r) => r.mode === 'require' && !RISK_FIELDS.includes(r.field)).every((r) => r.state === 'pass');
       });
-      if (riskNeeded && risk) snapshot = await attachRisk(snapshot,risk,{ signal });
+      if (riskNeeded && risk) snapshot = await attachRisk(snapshot,risk,{ signal, candidate });
       for (const scan of scans) {
         const id = scan.user_id;
         const approved = current(id, scan.criteria_key);
