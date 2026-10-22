@@ -6,6 +6,7 @@ import { DISCOVERY_SCHEMA, discoveryStore } from './discovery-store.js';
 import { WATCH_SCHEMA, watchStore } from './watch-store.js';
 import { GROUP_SCHEMA, groupStore } from './group-store.js';
 import { validDescription } from './description-data.js';
+import { INTELLIGENCE_SCHEMA, intelligenceStore } from './intelligence-store.js';
 
 export class AgentStoreError extends Error {
   constructor() { super('Saved agent data could not be accessed. Sift stopped to preserve existing settings.'); }
@@ -61,6 +62,7 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
     db.exec(DISCOVERY_SCHEMA);
     db.exec(WATCH_SCHEMA);
     db.exec(GROUP_SCHEMA);
+    db.exec(INTELLIGENCE_SCHEMA);
   } catch { try { db?.close(); } catch {} throw new AgentStoreError(); }
   const safe = (fn) => (...args) => {
     try { return fn(...args); } catch (error) {
@@ -76,6 +78,7 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
     ...discoveryStore(db, safe),
     ...watchStore(db, safe),
     ...groupStore(db, safe),
+    ...intelligenceStore(db, safe),
     aiReserve: safe((updateId, day) => {
       if (!Number.isSafeInteger(updateId) || updateId<0 || !/^\d{4}-\d{2}-\d{2}$/.test(day)) throw new AgentStoreError();
       db.exec('BEGIN IMMEDIATE');
@@ -94,9 +97,12 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
     put: safe((id, state) => {
       validateState(state);
       const previous = db.prepare('SELECT approved FROM agents WHERE user_id=?').get(userId(id));
+      if ((previous?.approved ?? null) !== (state.approved ? JSON.stringify(state.approved) : null)) {
+        db.prepare('INSERT INTO rule_audit (user_id,at,action,detail) VALUES (?,?,?,?)').run(id,Date.now(),'approved_rules',JSON.stringify({before:previous?.approved?JSON.parse(previous.approved):null,after:state.approved}));
+      }
       if (previous?.approved && previous.approved !== JSON.stringify(state.approved)) {
         db.prepare("UPDATE discovery_scans SET state='paused',issue='RULES_CHANGED' WHERE user_id=? AND state='active'").run(id);
-        db.prepare("UPDATE group_targets SET state='paused',issue='RULES_CHANGED',revision=revision+1 WHERE owner_id=? AND state!='stopped'").run(id);
+        db.prepare("UPDATE group_targets SET state='paused',issue='RULES_CHANGED',revision=revision+1 WHERE owner_id=? AND state!='stopped' AND chat_id NOT IN (SELECT chat_id FROM group_settings WHERE strategy IS NOT NULL)").run(id);
       }
       db.prepare(`INSERT INTO agents VALUES (?, ?, ?, ?)
         ON CONFLICT(user_id) DO UPDATE SET revision=excluded.revision, draft=excluded.draft, approved=excluded.approved`)

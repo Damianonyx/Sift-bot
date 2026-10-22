@@ -2,6 +2,8 @@ import { commandFor } from './bot.js';
 import { RULE_FIELDS, describeRule, assertApprovable } from './rules.js';
 import { TEST_RISK_RULES, RISK_FIELDS } from './risk.js';
 import { descriptionReview } from './description-commands.js';
+import { verificationLimitsButton, verificationLimitsView } from './risk-capabilities.js';
+import { parseDescription } from './description-data.js';
 
 const QUESTIONS = [
   'Give your agent a name (1–32 characters).',
@@ -46,7 +48,10 @@ function button(text, action, id, revision) {
 }
 
 function view(state, id) {
-  if (state.draft?.interpretation) return descriptionReview(state,id);
+  if (state.draft?.interpretation) {
+    const review = descriptionReview(state,id);
+    return { ...review, reply_markup:{ inline_keyboard:[...(review.reply_markup?.inline_keyboard ?? []), ...verificationLimitsButton(state,id)] } };
+  }
   const reply = (text, buttons = []) => ({ chat_id: id, text,
     ...(buttons.length ? { reply_markup: { inline_keyboard: buttons } } : {}) });
   if (state.draft && state.draft.step < QUESTIONS.length) {
@@ -79,7 +84,7 @@ function view(state, id) {
     ...(state.draft && !approvalError ? [button('Approve rules', 'approve', id, state.revision)] : []),
     button('Edit rules', 'edit', id, state.revision),
     ...(state.draft ? [button('Discard draft', 'cancel', id, state.revision)] : []),
-  ]]);
+  ], ...verificationLimitsButton(state,id)]);
 }
 
 export function createAgentSetup(store) {
@@ -92,13 +97,23 @@ export function createAgentSetup(store) {
           typeof callback.id !== 'string' || typeof callback.data !== 'string') return null;
       const acknowledge = (notice) => ({ callbackQueryId: callback.id, callbackNotice: notice });
       if (!allowedUserIds.has(id)) return acknowledge('Sift is in private testing.');
-      const match = /^agent:([1-9]\d*):(skip|cancel|approve|edit|risk):(\d+)$/.exec(callback.data);
+      const match = /^agent:([1-9]\d*):(skip|cancel|approve|edit|risk|limits|mapextras):(\d+)$/.exec(callback.data);
       if (!match || Number(match[1]) !== id) return acknowledge('This button does not belong to your agent.');
       return store.process(update.update_id, () => {
         const state = store.get(id);
         if (state.revision !== Number(match[3])) return acknowledge('This button is out of date. Use /agent for the current rules.');
         const action = match[2];
-        if (action === 'risk') {
+        if (action === 'limits') return { ...verificationLimitsView(state,id), ...acknowledge('Saved rules unchanged.') };
+        if(action==='mapextras') {
+          if(!state.draft||state.draft.step!==QUESTIONS.length)return acknowledge('Finish the current draft first.');
+          const text=state.draft.pendingRequirements.join('; ');
+          if(!text||text.length>800)return acknowledge('Combine or clarify the saved extras first.');
+          const parsed=parseDescription(text);
+          if(parsed.unresolved.length)return acknowledge('Scope or policy remains unresolved; your saved instructions are unchanged.');
+          const merged=[...state.draft.rules,...parsed.rules];
+          if(new Set(merged.map(r=>r.field)).size!==merged.length)return acknowledge('A saved rule conflicts with these extras. Nothing changed.');
+          state.draft.rules=merged;state.draft.pendingRequirements=[];
+        } else if (action === 'risk') {
           const previous = state.draft ?? state.approved;
           if (!previous || (state.draft && state.draft.step !== QUESTIONS.length)) return acknowledge('Complete the current setup first.');
           state.draft = { name:previous.name, step:QUESTIONS.length, pendingRequirements:[],
@@ -131,6 +146,14 @@ export function createAgentSetup(store) {
     const state = store.get(id);
     const text = update.message.text.trim();
     if (command === 'agent') return view(state, id);
+    if(command==='mapextras') {
+      const text=state.draft?.pendingRequirements.join('; ');
+      if(!text||text.length>800)return {chat_id:id,text:'No completed draft with up to 800 characters of extras is available. Use /agent.'};
+      const parsed=parseDescription(text);
+      return {chat_id:id,text:['Review mapping of saved extras',`Original:\n${text}`,parsed.rules.map(describeRule).join('\n'),
+        parsed.unresolved.length?'Still unresolved. State selected-pool or all-pools scope explicitly. Unknown required checks remain blocking. Saved rules unchanged.':'The exact policies above can be saved in your draft. All-pools and complete bundle coverage still remain UNKNOWN; approval cannot make them pass.',
+      ].filter(Boolean).join('\n\n'),...(!parsed.unresolved.length?{reply_markup:{inline_keyboard:[[button('Map extras into draft','mapextras',id,state.revision)]]}}:{})};
+    }
     if (command === 'riskrules') {
       const previous = state.draft ?? state.approved;
       if (!previous || (state.draft && state.draft.step !== QUESTIONS.length)) return { chat_id:id, text:'Finish /setup first, then use /riskrules to review the explicit risk policy.' };

@@ -1,6 +1,7 @@
 import { MarketDataError, isSolanaAddress, sourceUrl } from './market.js';
 import { AgentStoreError } from './agent-store.js';
 import { TelegramError } from './telegram.js';
+import { withCopyableCAs } from './telegram-format.js';
 import { evaluateRules, describeRule } from './rules.js';
 import { setTimeout as delay } from 'node:timers/promises';
 import { REVIEW_TTL } from './watch-store.js';
@@ -67,7 +68,8 @@ export function createWatchRunner({ agents, market, call, allowedUserIds, now = 
     }
     deliveries.set(row.user_id, (deliveries.get(row.user_id) ?? 0) + 1);
     try {
-      await call('sendMessage', { chat_id: row.user_id, text, link_preview_options: { is_disabled: true } }, signal);
+      await call('sendMessage', withCopyableCAs({ chat_id: row.user_id, text,
+        link_preview_options: { is_disabled: true } }, [row.token]), signal);
       agents.watchDelivery(row.user_id, eventId, 'sent');
     } catch (error) {
       if (error instanceof AgentStoreError) throw error;

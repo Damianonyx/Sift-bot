@@ -1,5 +1,5 @@
 import { isSolanaAddress } from './market.js';
-import { createSolanaRpc, RPC_URL, SolanaRpcError } from './solana-rpc.js';
+import { createSolanaRpc, RPC_URL, SolanaRpcError, rpcFailureReason } from './solana-rpc.js';
 import { decodeRaydiumPool, observeLpAccounts, LiquidityEvidenceError, RAYDIUM_V4 } from './raydium-liquidity.js';
 import { decodePumpSwapPool, observePumpSwapLp, PUMPSWAP } from './pumpswap-liquidity.js';
 import { verifyLiquidityProtection } from './liquidity-protection.js';
@@ -29,7 +29,10 @@ const REASONS = {
   SOURCE_UNAVAILABLE: 'Solana RPC was unavailable or denied access.',
   INVALID_RESPONSE: 'Solana RPC did not return a usable response.',
   NETWORK_OR_RESPONSE: 'Solana RPC could not be reached or read.',
+  TIMED_OUT: 'Solana RPC request timed out.',
 };
+export const liquidityFailureReason = code => Object.hasOwn(REASONS, code)
+  ? REASONS[code] : 'Required on-chain liquidity evidence could not be verified.';
 
 export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } = {}) {
   let inFlight = false, nextAllowedAt = 0;
@@ -73,8 +76,9 @@ export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } 
                 result.observation = reader.observe(current, reread.accounts.slice(1,4));
                 return { observation: result.observation, extra: reread.accounts.slice(4) };
               } });
-          } catch {
-            result.protection = unknown('Protection evidence unavailable or incomplete.');
+          } catch (error) {
+            result.protection = unknown(error instanceof LiquidityEvidenceError
+              ? liquidityFailureReason(error.code) : rpcFailureReason(error));
           }
         }
         let timeUnavailable = false;
@@ -121,7 +125,7 @@ export function formatLiquidityReport(result) {
     lines.push(...result.protection.links.slice(0,3));
   }
   if (result.pool) lines.push(`Selected pool: ${result.pool}\nCoverage: one DEX Screener-selected pool from ${result.poolCount} supported market pools; other pools are not assessed. ${result.selection === 'reported_liquidity' ? 'Selected by highest known reported USD liquidity.' : 'Unranked fallback; pool liquidity amounts were unknown.'}`);
-  if (result.reason) lines.push(REASONS[result.reason] ?? 'Required on-chain evidence could not be verified.');
+  if (result.reason) lines.push(liquidityFailureReason(result.reason));
   if (result.program) lines.push(`Pool program: ${READERS.get(result.program)?.name ?? 'unsupported'}\nProgram evidence: https://solscan.io/account/${result.program}`);
   if (result.observation) {
     const observation = result.observation;

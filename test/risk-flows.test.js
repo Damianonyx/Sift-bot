@@ -76,8 +76,9 @@ test('full seven-rule /check report fits Telegram and never reports incomplete c
 test('discovery persists unknown risk outcomes, rechecks approval after evidence and makes no false alerts',async t=>{
   const store=storeFor(t),approved=agent();store.put(42,{revision:1,draft:null,approved});store.discoverySet(42,'active',criteriaKey(approved));
   let checks=0;
-  const feed={read:async()=>({candidates:[{address:CA}],invalidPools:0,sourceUrl:'https://example.invalid',fetchedAt:NOW})};
-  const runner=createDiscoveryRunner({agents:store,market:{check:async()=>snapshot()},risk:{check:async()=>{checks++;return risk();}},feed,call:noRequest,allowedUserIds:allowed,now:()=>NOW});
+  const candidate={address:CA,provenance:[{source:'pumpportal',kind:'create',receivedAt:NOW,signature:'synthetic-locator-only'}]};
+  const feed={read:async()=>({candidates:[candidate],invalidPools:0,sourceUrl:'https://example.invalid',fetchedAt:NOW})};
+  const runner=createDiscoveryRunner({agents:store,market:{check:async()=>snapshot()},risk:{check:async(_s,options)=>{checks++;assert.deepEqual(options.candidate,candidate);return risk();}},feed,call:noRequest,allowedUserIds:allowed,now:()=>NOW});
   await runner.cycle();assert.equal(checks,1);assert.equal(store.discoveryGet(42).matched,0);assert.equal(store.discoveryGet(42).issue,'RISK_UNKNOWN');assert.equal(store.discoveryHistory(42).length,0);
   const stopped=createDiscoveryRunner({agents:store,market:{check:async()=>snapshot()},risk:{check:async()=>{store.discoverySet(42,'paused',criteriaKey(approved));return risk();}},feed,call:noRequest,allowedUserIds:allowed,now:()=>NOW});
   await stopped.cycle();assert.equal(store.discoveryGet(42).state,'paused');assert.equal(store.discoveryHistory(42).length,0);
@@ -112,4 +113,40 @@ test('risk service source failures never expose raw errors or pass required chec
   const service=createRiskData({rpc:{signatures:error},liquidity:{check:error},now:()=>NOW});
   const result=await service.check(snapshot());assert.ok(['liquidityProtection','developerHolding','buyingCoordination'].every(f=>result[f].state==='unknown'));
   assert.doesNotMatch(JSON.stringify(result),/PRIVATE_DETAILS/);
+});
+
+test('verification limits from agent and scan preserve the legacy draft, approval and active scan',async t=>{
+  const store=storeFor(t),approved=agent();
+  const saved={revision:9,approved,draft:{name:'TheGeek',step:6,rules:[cap],pendingRequirements:[
+    'Require 100% liquidity protection across all pools, six months remaining. Developer holds; partial sales flagged. Exclude confirmed bundles; unknown required checks cannot qualify.',
+  ]}};
+  store.put(42,saved);store.discoverySet(42,'active',criteriaKey(approved));
+  const beforeScan=store.discoveryGet(42);
+  const respond=createResponder({agents:store,market:{check:noRequest},risk:{check:noRequest},feed:{read:noRequest}});
+  const review=await respond(input('/agent'),allowed);
+  assert.match(review.text,/not been mapped/);assert.equal(action(review,'Approve rules'),undefined);
+  const control=action(review,'Verification limits');assert.ok(control);
+  assert.equal(action(await respond(input('/scan'),allowed),'Verification limits'),control);
+  const update=cb(control), limits=await respond(update,allowed);
+  assert.match(limits.text,/cannot currently produce qualifying alerts/);
+  assert.match(limits.text,/does not establish 100% protection across all pools/);
+  assert.match(limits.text,/replaces?ment of ALL|replacement of ALL/);
+  assert.equal(limits.reply_markup,undefined);assert.ok(limits.text.length<4096);
+  assert.deepEqual(store.get(42),saved);assert.deepEqual(store.discoveryGet(42),beforeScan);
+  assert.deepEqual(await respond(update,allowed),limits); // Retry also leaves state intact.
+  assert.match((await respond(cb(control,57),allowed)).callbackNotice,/does not belong/);
+  assert.match((await respond(cb(control),new Set([57]))).callbackNotice,/private testing/);
+  const group=cb(control);group.callback_query.message.chat.type='group';assert.equal(await respond(group,allowed),null);
+  store.put(42,{...saved,revision:10});
+  assert.match((await respond(cb(control),allowed)).callbackNotice,/out of date/);
+  assert.deepEqual(store.get(42),{...saved,revision:10});assert.deepEqual(store.discoveryGet(42),beforeScan);
+});
+
+test('longest retained extra instructions fit the draft review with the new blocked explanation',t=>{
+  const store=storeFor(t),setup=createAgentSetup(store);
+  store.put(42,{revision:1,approved:null,draft:{name:'N'.repeat(32),step:6,
+    rules:[cap,{field:'liquidityUsd',mode:'require',value:30000},{field:'volume1h',mode:'require',value:60000},
+      {field:'poolAgeMinutes',mode:'require',value:20},...TEST_RISK_RULES],pendingRequirements:['X'.repeat(800),'Y'.repeat(800)]}});
+  const review=setup(input('/agent'),allowed);assert.ok(review.text.length<4096,review.text.length);
+  assert.equal(action(review,'Approve rules'),undefined);assert.ok(action(review,'Verification limits'));
 });

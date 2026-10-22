@@ -5,6 +5,8 @@ import { base58Bytes, instructionIs, instructions, successful, signer, rawAmount
 
 export const PUMP = '6EF8rrecthR5Dkzon8Nwu78hRvfCKubJ14M5uBEwF6P';
 export const PUMP_FEE = 'pfeeUxB6jkeY1Hxd7CsFCAjcbHA9rWtchMGdZ6VojVZ';
+const SYSTEM = '11111111111111111111111111111111';
+const ASSOCIATED_TOKEN = 'ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
 
 function supportedFeeCall(ix, parent, side) {
   // Pinned Pump fee IDL: read-only get_fees / get_fees_with_quote_mint.
@@ -28,9 +30,18 @@ export function developerFromCreation(tx, mint) {
   if (!successful(tx)) return null;
   const found = new Set();
   for (const ix of instructions(tx)) {
-    // Only classic Pump create. Fee recipients, metadata authorities and pool
-    // creators are not token-developer attribution. Unfamiliar formats stay unknown.
-    if (!instructionIs(ix, PUMP, 'create') || ix.accounts?.length !== 14 || ix.accounts[0] !== mint) continue;
+    // Account/argument layouts pinned to pump-public-docs 639b87fb (idl/pump.json).
+    // Fee recipients, metadata authorities and delegated creators are not proof
+    // of the signing creator. Unfamiliar layouts remain unknown.
+    const v2 = instructionIs(ix, PUMP, 'create_v2');
+    if (!v2 && !instructionIs(ix, PUMP, 'create')) continue;
+    const a = ix.accounts;
+    if (!Array.isArray(a) || a.length !== (v2 ? 16 : 14) || a[0] !== mint || !a.every(isSolanaAddress)) continue;
+    if (v2 ? a[6] !== SYSTEM || a[7] !== TOKEN_PROGRAMS[1] || a[8] !== ASSOCIATED_TOKEN ||
+        a[9] !== 'MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e' || a[15] !== PUMP :
+      a[5] !== 'metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s' || a[8] !== SYSTEM ||
+        a[9] !== TOKEN_PROGRAMS[0] || a[10] !== ASSOCIATED_TOKEN ||
+        a[11] !== 'SysvarRent111111111111111111111111111111111' || a[13] !== PUMP) continue;
     const bytes = base58Bytes(ix.data);
     let cursor = 8, valid = true;
     for (let i = 0; i < 3; i++) {
@@ -39,9 +50,12 @@ export function developerFromCreation(tx, mint) {
       if (length > 1024 || cursor + length > bytes.length) { valid = false; break; }
       cursor += length;
     }
-    if (!valid || cursor + 32 !== bytes.length) continue;
-    const creator = publicKeyString(bytes.subarray(cursor));
-    if (creator === ix.accounts[7] && signer(tx, creator) && signer(tx, mint) && isSolanaAddress(creator)) found.add(creator);
+    // Current v2 tail: bool, OptionBool(bool), OptionU64(u64), OptionBool(bool).
+    // The IDL wrappers are structs, not Borsh Option tags. Other tails are unknown.
+    if (!valid || cursor + 32 + (v2 ? 11 : 0) !== bytes.length) continue;
+    if (v2 && [cursor + 32, cursor + 33, cursor + 42].some(i => bytes[i] > 1)) continue;
+    const creator = publicKeyString(bytes.subarray(cursor, cursor + 32));
+    if (creator === a[v2 ? 5 : 7] && signer(tx, creator) && signer(tx, mint) && isSolanaAddress(creator)) found.add(creator);
   }
   return found.size === 1 ? [...found][0] : null;
 }

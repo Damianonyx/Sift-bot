@@ -15,7 +15,8 @@ export function validateRules(rules, { requireStrict = true } = {}) {
         !['require', 'warn'].includes(rule.mode)) throw new Error('A screening rule is unsupported or incomplete.');
     seen.add(rule.field);
     if (RISK_FIELDS.includes(rule.field)) {
-      if (rule.mode !== 'require' || rule.policy !== 'private-test-v1') throw new Error('Risk checks require the complete private-test policy.');
+      if (rule.policy==='private-test-v1') {if(rule.mode!=='require')throw new Error('Legacy risk checks require the private-test policy.');}
+      else if(rule.policy!=='evidence-v2'||rule.field==='liquidityProtection'&&!['selected','all'].includes(rule.scope))throw new Error('Risk policy is unsupported or incomplete.');
     } else if (rule.field === 'marketCap') {
       if (!validNumber(rule.min) || !validNumber(rule.max) || rule.min > rule.max) {
         throw new Error('Market cap needs a valid minimum and maximum.');
@@ -32,9 +33,10 @@ export function describeRule(rule) {
     liquidityUsd: () => `Selected pool liquidity: at least ${money(rule.value)}`,
     volume1h: () => `Selected pool volume over 1h: at least ${money(rule.value)}`,
     poolAgeMinutes: () => `Selected pool age: at most ${rule.value} minutes (not token creation or trading start)`,
-    liquidityProtection: () => 'Selected pool: 100% LP protection; verified burns accepted; locks need six UTC calendar months remaining (month-end clamped)',
+    liquidityProtection: () => `${rule.scope==='all'?'All pools (complete coverage required)':'Selected pool'}: 100% LP protection; verified burns accepted; locks need six UTC calendar months remaining (month-end clamped)`,
     developerHolding: () => 'Signing token creator still holds tokens; partial sales allowed and flagged; transfers reported separately',
-    buyingCoordination: () => 'Exclude confirmed bundles/coordinated buys; flag suspicions; unknown coverage blocks qualification',
+    buyingCoordination: () => rule.mode==='warn'?'Flag confirmed bundles/coordinated buys, suspicions and unknown coverage; warning only':
+      'Exclude confirmed bundles/coordinated buys; flag suspicions; unknown coverage blocks qualification',
   };
   return `${rule.mode === 'require' ? 'Required' : 'Warning only'} · ${descriptions[rule.field]()}`;
 }
@@ -56,6 +58,7 @@ export function evaluateRules(rules, snapshot, { now = Date.now(), requireStrict
       const current = risk?.address === snapshot.address && risk?.pool === pool?.address &&
         Number.isFinite(risk?.checkedAt) && risk.checkedAt <= now && now - risk.checkedAt <= 120_000;
       const evidence = current ? risk[rule.field] : null;
+      if(rule.field==='liquidityProtection'&&rule.scope==='all')return {...rule,valueObserved:null,state:'unknown'};
       let state = evidence?.state === 'fail' ? 'fail' : 'unknown';
       const fresh = Number.isFinite(evidence?.observedAt) && now - evidence.observedAt <= 120_000 && evidence.observedAt <= now + 30_000;
       if (evidence?.state === 'pass' && fresh && evidence.links?.length) {
@@ -81,7 +84,7 @@ export function evaluateRules(rules, snapshot, { now = Date.now(), requireStrict
 
 export function assertApprovable(agent) {
   if (!Array.isArray(agent.pendingRequirements) || agent.pendingRequirements.length) {
-    throw new Error('Approval blocked: extra requirements still need clarification and supported checks.');
+    throw new Error('Approval blocked: extra instructions have not been mapped to supported checks. Saved instructions are unchanged.');
   }
   validateRules(agent.rules);
 }

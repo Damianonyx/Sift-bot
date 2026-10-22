@@ -56,6 +56,38 @@ test('adding a group does nothing; admin connects then explicitly approves priva
   assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,0);
 });
 
+test('a separately approved group strategy scans independently and keeps private edits out of group evidence',async t=>{
+  const s=setup(t);await enable(s);
+  const proposed=await s.groups.respond(message('/groupstrategy '+chat,42,42));
+  assert.equal(s.agents.groupGet(chat).state,'review');
+  await s.groups.respond(callback(action(proposed,'Enable')));
+  s.agents.discoverySet(42,'stopped',key);
+  s.agents.put(42,{revision:2,draft:null,approved:{name:'PRIVATE NEW NAME',rules:[{field:'marketCap',mode:'require',min:1,max:2}],pendingRequirements:[]}});
+  assert.equal(s.agents.groupGet(chat).state,'active');assert.equal(s.groups.targets().length,1);
+  const runner=createDiscoveryRunner({agents:s.agents,groups:s.groups,allowedUserIds:s.allowedUserIds,call:s.call,now:()=>NOW,
+    market:{check:async()=>normalisePairs([{chainId:'solana',pairAddress:snapshot().selected.address,baseToken:{address:CA},marketCap:40000,liquidity:{usd:40000}}],CA,NOW)},
+    feed:{read:async()=>({candidates:[{address:CA}],sourceUrl:'https://example.invalid',fetchedAt:NOW})}});
+  await runner.cycle();await runner.cycle();
+  const sends=s.calls.filter(c=>c.method==='sendMessage');assert.equal(sends.length,1);assert.equal(sends[0].body.chat_id,chat);assert.doesNotMatch(sends[0].body.text,/PRIVATE NEW NAME/);
+  const ledger=s.agents.signalList(42);assert.equal(ledger.length,1);assert.equal(ledger[0].target,chat);assert.equal(ledger[0].delivery,'sent');
+  assert.equal(s.agents.groupSettings(chat).matched,1);
+  const publicCallback={update_id:++sequence,callback_query:{id:'public',data:`groupdata:${chat}:1:0`,from:{id:99,is_bot:false},message:{chat:{id:chat,type:'supergroup'}}}};
+  const evidence=await s.groups.respond(publicCallback);assert.ok(evidence.text);assert.doesNotMatch(evidence.text,/PRIVATE NEW NAME/);
+  publicCallback.callback_query.message.chat.id=-999;assert.match((await s.groups.respond(publicCallback)).callbackNotice,/original group/);
+});
+
+test('group cadence survives cycles, changes require review, and pause revokes posting',async t=>{
+  const s=setup(t);await enable(s);
+  const proposed=await s.groups.respond(message('/groupconfig '+chat+' 10 1',42,42));
+  assert.equal(s.agents.groupGet(chat).state,'review');await s.groups.respond(callback(action(proposed,'Enable')));
+  await s.groups.deliver(42,key,'token-a','evidence');s.groups.beginCycle();
+  await s.groups.deliver(42,key,'token-b','evidence');assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,1);
+  s.setTime(NOW+600001);await s.groups.deliver(42,key,'token-b','evidence');assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,2);
+  await s.groups.respond(message('/grouppause '+chat,42,42));s.groups.beginCycle();s.setTime(NOW+1200002);
+  await s.groups.deliver(42,key,'token-c','evidence');assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,2);
+  assert.ok(s.agents.auditList(42).some(a=>a.action==='group_configuration'));
+});
+
 test('group access rejects strangers, anonymous admins, foreign bots and wrong-owner buttons',async t=>{
   const s=setup(t);
   assert.equal(await s.groups.respond(message('/group connect',99)),null);
@@ -89,7 +121,9 @@ test('future discovery matches are shared once with evidence and without private
   await runner.cycle();await runner.cycle();
   const sends=s.calls.filter(c=>c.method==='sendMessage');assert.equal(sends.length,2);
   const group=sends.find(c=>c.body.chat_id===chat);assert.ok(group.body.text.includes(CA));assert.match(group.body.text,/Risk checks were not requested/);
-  assert.equal(group.body.reply_markup,undefined);assert.ok(group.body.text.length<=4096);
+  assert.deepEqual(group.body.reply_markup.inline_keyboard,[[{text:'View evidence',callback_data:`groupdata:${chat}:1:0`}],[{text:'Copy CA',copy_text:{text:CA}}]]);
+  assert.deepEqual(group.body.entities.map(e=>group.body.text.slice(e.offset,e.offset+e.length)),[CA]);
+  assert.ok(group.body.text.length<=4096);
 });
 
 test('removing admin access, pausing scans and stopping during authorization prevent group sends',async t=>{

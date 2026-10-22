@@ -1,4 +1,5 @@
 import { validateRules } from './rules.js';
+import { parsePolicyDescription } from './policy-description.js';
 
 export const validDescription = text => typeof text==='string' && text.trim().length>0 && text.length<=800 && !/[\p{Cf}\u0000-\u0008\u000b-\u001f\u007f]/u.test(text);
 const riskWords = /\b(dev(?:eloper)?|lock(?:ed|s)?|burn(?:ed|t)?|protect\w*|bundl\w*|coordinat\w*|wallet\w*|holder\w*|mint(?:ing)?|freez\w*|authorit\w*|honeypot\w*|rug\w*|safe\w*|suspicious|profit\w*|guarantee\w*|tax\w*|social\w*|twitter|telegram|renounc\w*|snip\w*|insider\w*|ethereum|bsc|polygon|sui|bnb)\b/i;
@@ -36,6 +37,17 @@ export function validateInterpretation(value, text) {
 
 export function parseDescription(text) {
   if(!validDescription(text))throw Error('Invalid description');
+  const policy=parsePolicyDescription(text);
+  if(policy.rules.length) {
+    const remaining=policy.market.join('; '),parsed=remaining?parseMarketDescription(remaining):{rules:[],unresolved:[]};
+    try {
+      const rules=[...parsed.rules,...policy.rules];validateRules(rules,{requireStrict:false});
+      return {rules,unresolved:policy.unresolved.length||parsed.unresolved.length?[text]:[],engine:'Local parser'};
+    }catch{return {rules:[],unresolved:[text],engine:'Local parser'};}
+  }
+  return parseMarketDescription(text);
+}
+function parseMarketDescription(text) {
   const rules=[],unresolved=[];
   for(const original of text.split(/[;\n]+/).filter(s=>s.trim())) {
     let clause=original.trim().replace(/[.]$/,'').replace(/^(?:find(?: me)?|show me)\s+(?:solana\s+)?(?:a coin|coins|tokens)\s+(?:with\s+)?/i,'');
