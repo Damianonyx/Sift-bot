@@ -10,6 +10,21 @@ export class SolanaRpcError extends Error {
   }
 }
 
+const RPC_FAILURES = new Map([
+  ['RATE_LIMITED', 'Solana RPC rate limit reached; wait before retrying.'],
+  ['COOLDOWN', 'Evidence checks are temporarily limited; wait before retrying.'],
+  ['TIMED_OUT', 'Solana RPC request timed out.'],
+  ['STOPPED', 'Evidence check was stopped or reached its time limit.'],
+  ['SOURCE_UNAVAILABLE', 'Solana RPC was unavailable or denied access.'],
+  ['INVALID_RESPONSE', 'Solana RPC returned an unusable or mismatched response.'],
+  ['NETWORK_OR_RESPONSE', 'Solana RPC could not be reached or read.'],
+]);
+// Fixed messages only: provider bodies, URLs and arbitrary error strings never
+// enter Telegram reports. Unsupported error codes remain explicitly unknown.
+export const rpcFailureReason = error => error instanceof SolanaRpcError
+  ? RPC_FAILURES.get(error.code) ?? 'RPC evidence failed; the cause was not classified.'
+  : 'Evidence read failed; the cause was not classified.';
+
 async function readJson(response) {
   if (!response.body) throw new SolanaRpcError('INVALID_RESPONSE');
   const reader = response.body.getReader();
@@ -24,7 +39,8 @@ async function readJson(response) {
       chunks.push(value);
     }
   } finally { reader.releaseLock(); }
-  return JSON.parse(Buffer.concat(chunks).toString('utf8'));
+  try { return JSON.parse(Buffer.concat(chunks).toString('utf8')); }
+  catch { throw new SolanaRpcError('INVALID_RESPONSE'); }
 }
 
 // Only bounded, read-only methods at the public mainnet endpoint. No generic
@@ -35,8 +51,8 @@ export function createSolanaRpc({ fetchImpl = fetch, now = Date.now } = {}) {
     if (signal?.aborted) throw new SolanaRpcError('STOPPED');
     if (now() < nextAllowedAt) throw new SolanaRpcError('RATE_LIMITED', Math.ceil((nextAllowedAt - now()) / 1000));
     const id = ++requestId;
+    const timeout = AbortSignal.timeout(8000);
     try {
-      const timeout = AbortSignal.timeout(8000);
       const response = await fetchImpl(RPC_URL, {
         method: 'POST', headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ jsonrpc: '2.0', id, method, params }), redirect: 'error',
@@ -62,6 +78,7 @@ export function createSolanaRpc({ fetchImpl = fetch, now = Date.now } = {}) {
     } catch (error) {
       if (signal?.aborted) throw new SolanaRpcError('STOPPED');
       if (error instanceof SolanaRpcError) throw error;
+      if (timeout.aborted || error?.name === 'TimeoutError') throw new SolanaRpcError('TIMED_OUT');
       throw new SolanaRpcError('NETWORK_OR_RESPONSE');
     }
   }

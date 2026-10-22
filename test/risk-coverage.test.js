@@ -101,6 +101,7 @@ test('pool reads retain reserved capacity after full mint and creator histories'
   assert.equal(reads.length,40);assert.ok(reads.includes(sig(41)));
   assert.deepEqual(result.coverage.map(c=>[c.role,c.read,c.omitted]),[['Mint',20,0],['Creator',10,10],['Pool',10,10]]);
   assert.match(formatRiskReport(result),/Pool: sampled; 10\/20 verified/);
+  assert.match(formatRiskReport(result),/Transaction budget reserved/);
 });
 
 test('verified evidence survives missing bodies and interrupted history; shared signatures are cached',async()=>{

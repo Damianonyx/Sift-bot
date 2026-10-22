@@ -1,5 +1,5 @@
-import { createSolanaRpc } from './solana-rpc.js';
-import { createLiquidityData } from './liquidity.js';
+import { createSolanaRpc, SolanaRpcError, rpcFailureReason } from './solana-rpc.js';
+import { createLiquidityData, liquidityFailureReason } from './liquidity.js';
 import { developerFromCreation, developerActivity, buyingEvidence } from './wallet-evidence.js';
 import { unknown, txLink, accountLink, base58Bytes, successful } from './evidence-utils.js';
 
@@ -40,20 +40,29 @@ export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiqu
         const values = [];
         let rows;
         try { rows = await rpc.signatures(address, options); }
-        catch { report.state = 'unavailable'; return values; }
+        catch (error) { report.state = 'unavailable'; report.reason = rpcFailureReason(error); return values; }
         report.returned = rows.length;
         for (const [index, row] of rows.entries()) {
           if (row.err !== null) { report.failed++; continue; }
-          if (!cache.has(row.signature) && reads >= 40 - reserve) { report.omitted++; continue; }
-          if (bounded.aborted) { report.state = 'interrupted'; report.omitted += rows.length - index; break; }
+          if (!cache.has(row.signature) && reads >= 40 - reserve) {
+            report.omitted++; report.reason ??= 'Transaction budget reserved for other checks or exhausted.'; continue;
+          }
+          if (bounded.aborted) {
+            report.state = 'interrupted'; report.reason = rpcFailureReason(new SolanaRpcError('STOPPED'));
+            report.omitted += rows.length - index; break;
+          }
           try {
             const tx = await limitedRpc.transaction(row.signature, options);
             if (successful(tx) && tx.slot === row.slot && tx.transaction.signatures?.[0] === row.signature) {
               values.push({ signature:row.signature, tx }); report.read++;
-            } else report.missing++;
-          } catch {
+            } else {
+              report.missing++; report.reason ??= tx === null ? 'RPC returned no transaction body.' :
+                'A transaction body failed the success, signature or slot checks.';
+            }
+          } catch (error) {
             // Keep already verified evidence; do not retry through a provider outage.
-            report.missing++; report.state = 'interrupted'; report.omitted += rows.length - index - 1; break;
+            report.missing++; report.state = 'interrupted'; report.reason = rpcFailureReason(error);
+            report.omitted += rows.length - index - 1; break;
           }
         }
         return values;
@@ -62,9 +71,9 @@ export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiqu
         try {
           // The liquidity service has its own bounded burn trace (20 reads).
           const evidence = await liquidity.check(snapshot, { ...options, verifyProtection:true });
-          result.liquidityProtection = { ...(evidence.protection ?? unknown('Pool protection unsupported.')), observedAt:evidence.blockTime };
+          result.liquidityProtection = { ...(evidence.protection ?? unknown(liquidityFailureReason(evidence.reason))), observedAt:evidence.blockTime };
           result.liquiditySlot = evidence.slot;
-        } catch { result.warnings.push('Liquidity source unavailable.'); }
+        } catch (error) { result.liquidityProtection = unknown(rpcFailureReason(error)); }
         try {
           let creations = [];
           // A recent feed signature is only a locator. The finalized RPC response
@@ -78,7 +87,9 @@ export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiqu
               const tx = await limitedRpc.transaction(hint.signature,options);
               const wallet = tx?.transaction?.signatures?.[0] === hint.signature && developerFromCreation(tx,snapshot.address);
               if (wallet) { creations = [{ wallet, signature:hint.signature, tx }]; result.creationLookup = 'Launch signature verified against a finalized, signed creation.'; }
-            } catch { /* A source label never substitutes for transaction proof. */ }
+            } catch (error) {
+              result.creationLookup = 'Launch signature lookup: ' + rpcFailureReason(error) + ' Recent mint history attempted instead.';
+            }
           }
           if (!creations.length) {
             const mintHistory = await history(snapshot.address,'Mint',20);
@@ -102,11 +113,11 @@ export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiqu
               if (result.events.some((e) => e.kind === 'transfer')) result.warnings.push('Developer transfers observed; a transfer alone is not proof of a sale.');
             } catch { result.warnings.push('Developer activity history unavailable.'); }
           }
-        } catch { result.warnings.push('Developer attribution/balance source unavailable or incomplete.'); }
+        } catch (error) { result.warnings.push('Developer attribution/balance: ' + rpcFailureReason(error)); }
         try {
           result.buyingCoordination = buyingEvidence(await history(result.pool,'Pool'),snapshot.address,result.pool);
           result.warnings.push(...(result.buyingCoordination.suspicions ?? []));
-        } catch { result.warnings.push('Buying-pattern history unavailable.'); }
+        } catch (error) { result.warnings.push('Buying-pattern history: ' + rpcFailureReason(error)); }
         result.warnings.push('Developer sales/transfer history is incomplete; no claim of “never sold”.');
         result.checkedAt = now();
         for (const field of ['liquidityProtection','developerHolding']) {
@@ -147,7 +158,7 @@ export function formatRiskReport(result, { compact = false } = {}) {
     lines.push(...result.events.slice(0,3).map((e) => `${e.kind.toUpperCase()} · ${e.amount} raw token units\n${e.link}`));
     lines.push(...result.warnings, result.creationLookup,
       ...(result.coverage?.length ? ['Transaction sample (not complete history):\n' + result.coverage.map(c =>
-        `${c.role}: ${c.state}; ${c.read}/${c.returned} verified, ${c.failed} failed, ${c.missing} missing/invalid, ${c.omitted} omitted.`).join('\n')] : []), result.history,
+        `${c.role}: ${c.state}; ${c.read}/${c.returned} verified, ${c.failed} failed, ${c.missing} missing/invalid, ${c.omitted} omitted.${c.reason ? '\nReason: ' + c.reason : ''}`).join('\n')] : []), result.history,
       'Scope: selected pool only; Pump create/create_v2 signing creator and direct PumpSwap trades. Bonding-curve sales, other attribution/venues and unfamiliar layouts remain unknown. Six months = UTC calendar months, clamped to month-end.',
       `Checked: ${new Date(result.checkedAt).toISOString()}. Public finalized RPC; no paid fallback.\nUnknown required checks block qualification. Saved rules and scan state are unchanged.`);
   }

@@ -124,6 +124,14 @@ becomes “bundle-free”. Other wallets, closed token accounts and venues are n
 fully covered. This is manual/discovery evidence, not a developer-wallet event
 subscription; `/watch` continues to monitor market data only.
 
+Reports preserve fixed, readable failure reasons: RPC rate limits, request
+timeouts, unusable responses, network failures, missing transaction bodies and
+budget omissions. Liquidity account-read and validation failures retain their
+specific reason instead of being labelled an unsupported pool. Arbitrary provider
+errors are never echoed. A report from before this diagnostic fix cannot identify
+the cause of an interruption retrospectively. Better diagnostics do not increase
+history coverage, establish creator identity or provide complete bundle evidence.
+
 ## Supplied Jito bundle IDs
 
 The direct PumpSwap trade reader now accepts the pinned read-only Pump Fee
