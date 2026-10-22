@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { intelligenceStore } from './intelligence-store.js';
 
 export const DISCOVERY_SCHEMA = `
   CREATE TABLE IF NOT EXISTS discovery_scans (
@@ -27,6 +28,7 @@ export function criteriaKey(agent) {
 }
 
 export function discoveryStore(db, safe) {
+  const ledger=intelligenceStore(db,safe);
   const scan = (id) => db.prepare('SELECT * FROM discovery_scans WHERE user_id=?').get(id) ??
     { user_id: id, state: 'stopped', criteria_key: '', last_run: null, checked: 0, matched: 0, suppressed: 0, issue: null };
   return {
@@ -50,16 +52,22 @@ export function discoveryStore(db, safe) {
     discoverySeen: safe((id, key, token) => Boolean(db.prepare('SELECT 1 FROM discovery_alerts WHERE user_id=? AND criteria_key=? AND token=?').get(id, key, token))),
     discoveryMuted: safe((id, token) => Boolean(db.prepare('SELECT 1 FROM discovery_mutes WHERE user_id=? AND token=?').get(id, token))),
     discoveryReserve: safe((id, key, token, time, payload) => {
+      db.exec('SAVEPOINT reserve_signal');
+      try {
       const result = db.prepare(`INSERT OR IGNORE INTO discovery_alerts (user_id,criteria_key,token,created_at,state,payload)
         SELECT ?,?,?,?,'pending',? WHERE EXISTS
         (SELECT 1 FROM discovery_scans WHERE user_id=? AND criteria_key=? AND state='active')
         AND NOT EXISTS (SELECT 1 FROM discovery_mutes WHERE user_id=? AND token=?)`)
         .run(id, key, token, time, JSON.stringify(payload), id, key, id, token);
-      return result.changes ? Number(result.lastInsertRowid) : null;
+      const eventId=result.changes ? Number(result.lastInsertRowid) : null;
+      if(eventId!==null && payload.snapshot && payload.strategy)ledger.signalRecord(id,id,eventId,payload.snapshot,payload.strategy,time);
+      db.exec('RELEASE reserve_signal');return eventId;
+      } catch(error){db.exec('ROLLBACK TO reserve_signal');db.exec('RELEASE reserve_signal');throw error;}
     }),
     discoveryDelivery: safe((id, eventId, state) => {
       if (!['sent', 'failed', 'uncertain', 'dismissed'].includes(state)) throw new Error('Invalid delivery state');
       db.prepare('UPDATE discovery_alerts SET state=? WHERE id=? AND user_id=?').run(state, eventId, id);
+      if(state!=='dismissed') db.prepare("UPDATE signal_calls SET delivery=? WHERE user_id=? AND target=? AND delivery_id=? AND delivery='pending'").run(state,id,id,eventId);
     }),
     discoveryAlert: safe((id, eventId) => {
       const row = db.prepare('SELECT * FROM discovery_alerts WHERE id=? AND user_id=?').get(eventId, id);

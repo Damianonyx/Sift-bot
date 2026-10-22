@@ -12,12 +12,16 @@ import { createBundleData, isBundleId } from './bundle-evidence.js';
 import { formatSourceHealth } from './candidate-sources.js';
 import { withCopyableCAs } from './telegram-format.js';
 import { createSourceAudit, formatSourceAudit } from './source-audit.js';
+import { createIntelligenceCommands } from './intelligence-commands.js';
 
-export function createResponder({ market = createMarketData(), agents, feed, groups, descriptionCommands, aiEnabled = false, liquidity = createLiquidityData(), risk = createRiskData({ liquidity }), bundles = createBundleData(), audit = createSourceAudit(), now = Date.now, wait } = {}) {
+export function createResponder({ market = createMarketData(), agents, feed, groups, quotes, holders, descriptionCommands, aiEnabled = false, liquidity = createLiquidityData(), risk = createRiskData({ liquidity }), bundles = createBundleData(), audit = createSourceAudit(), now = Date.now, wait } = {}) {
+  const intelligence=agents?createIntelligenceCommands({agents,quotes,holders,now}):null;
   const agentSetup = agents ? createAgentSetup(agents) : null;
   const scanCommands = agents && feed ? createScanCommands({ agents, feed }) : null;
   const watchCommands = agents ? createWatchCommands({ agents, market, now, wait }) : null;
   return async (update, allowedUserIds, signal) => {
+    const intelligenceReply=await intelligence?.(update,allowedUserIds,signal);
+    if(intelligenceReply)return intelligenceReply;
     const groupReply = await groups?.respond(update, signal);
     if (groupReply) return groupReply;
     const descriptionReply = await descriptionCommands?.(update, allowedUserIds, signal);
@@ -56,7 +60,7 @@ export function createResponder({ market = createMarketData(), agents, feed, gro
       }
       return response;
     }
-    if (!['check', 'liquidity', 'risk', 'bundle', 'verify'].includes(context.command)) return replyFor(update, allowedUserIds);
+    if (!['check', 'liquidity', 'risk', 'bundle', 'verify', 'poolcoverage'].includes(context.command)) return replyFor(update, allowedUserIds);
     const reply = (text) => withCopyableCAs({ chat_id: context.chatId, text,
       link_preview_options: { is_disabled: true } }, [context.args]);
     let bundleId;
@@ -80,6 +84,11 @@ export function createResponder({ market = createMarketData(), agents, feed, gro
       }
       return reply('DEX Screener data is unavailable or could not be read. No token assessment was made.\n\nTry /check again later. Missing data does not count as a passed check.');
     }
+    if(context.command==='poolcoverage')return reply([
+      `Sift · Indexed pool coverage\nCA: ${snapshot.address}`,
+      ...(snapshot.pools??[]).slice(0,12).map(p=>`${p.dex} · ${p.address}\nUSD liquidity: ${p.liquidityUsd??'unknown'}\nProtection: not assessed in this listing`),
+      `${snapshot.poolCount} indexed base-token pools returned; at most 12 listed. Missing, quote-only and unindexed pools may exist. This is not a complete on-chain pool inventory. /liquidity checks the selected pool. An all-pools protection requirement remains UNKNOWN.`,
+    ].join('\n\n'));
     if (context.command === 'verify') {
       try {
         const report = await audit.check(snapshot, { signal });

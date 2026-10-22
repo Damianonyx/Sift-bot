@@ -2,12 +2,13 @@ import { createSolanaRpc, SolanaRpcError, rpcFailureReason } from './solana-rpc.
 import { createLiquidityData, liquidityFailureReason } from './liquidity.js';
 import { developerFromCreation, developerActivity, buyingEvidence } from './wallet-evidence.js';
 import { unknown, txLink, accountLink, base58Bytes, successful } from './evidence-utils.js';
+import { AgentStoreError } from './agent-store.js';
 
 export const RISK_FIELDS = ['liquidityProtection', 'developerHolding', 'buyingCoordination'];
 export const TEST_RISK_RULES = Object.freeze(RISK_FIELDS.map((field) => Object.freeze({ field, mode:'require', policy:'private-test-v1' })));
 export const needsRisk = (rules) => rules?.some((r) => RISK_FIELDS.includes(r.field));
 
-export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiquidityData({ rpc }), now = Date.now } = {}) {
+export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiquidityData({ rpc }), agents, now = Date.now } = {}) {
   let busy = false, nextAt = 0;
   let health = { state:'not_checked', checkedAt:null };
   return {
@@ -76,12 +77,22 @@ export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiqu
         } catch (error) { result.liquidityProtection = unknown(rpcFailureReason(error)); }
         try {
           let creations = [];
+          // Persist only the locator of a previously verified creation. Refetch
+          // and validate the finalized transaction; never cache current holdings.
+          const savedSignature=agents?.creatorProof(snapshot.address);
+          if(base58Bytes(savedSignature,64)?.length===64) {
+            try {
+              const tx=await limitedRpc.transaction(savedSignature,options);
+              const wallet=tx?.transaction?.signatures?.[0]===savedSignature&&developerFromCreation(tx,snapshot.address);
+              if(wallet){creations=[{wallet,signature:savedSignature,tx}];result.creationLookup='Saved creation signature reverified against finalized on-chain evidence.';}
+            }catch { /* Fall through to a fresh hint or bounded history. */ }
+          }
           // A recent feed signature is only a locator. The finalized RPC response
           // must prove a successful, matching, signed creation for this exact mint.
           const hint = candidate?.address === snapshot.address && candidate.provenance?.find(p =>
             p.source === 'pumpportal' && p.kind === 'create' && Number.isSafeInteger(p.receivedAt) &&
             p.receivedAt <= now() && now() - p.receivedAt <= 20 * 60_000 && base58Bytes(p.signature,64)?.length === 64);
-          if (hint) {
+          if (hint && !creations.length) {
             result.creationLookup = 'Launch signature unverified; recent mint history used instead.';
             try {
               const tx = await limitedRpc.transaction(hint.signature,options);
@@ -99,6 +110,7 @@ export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiqu
             'No supported signed creation was verified. Recent mint history may omit creation or be unavailable.');
           if (creations.length === 1) {
             const { wallet, signature, tx } = creations[0];
+            agents?.creatorProofPut(snapshot.address,signature,now());
             result.developerHolding = unknown('Signing creator identified, but a current finalized token balance was not verified.');
             const balances = await rpc.tokenAccounts(wallet,snapshot.address,{ ...options, minContextSlot:tx.slot });
             const blockTime = await rpc.blockTime(balances.slot,options);
@@ -113,7 +125,7 @@ export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiqu
               if (result.events.some((e) => e.kind === 'transfer')) result.warnings.push('Developer transfers observed; a transfer alone is not proof of a sale.');
             } catch { result.warnings.push('Developer activity history unavailable.'); }
           }
-        } catch (error) { result.warnings.push('Developer attribution/balance: ' + rpcFailureReason(error)); }
+        } catch (error) { if(error instanceof AgentStoreError)throw error;result.warnings.push('Developer attribution/balance: ' + rpcFailureReason(error)); }
         try {
           result.buyingCoordination = buyingEvidence(await history(result.pool,'Pool'),snapshot.address,result.pool);
           result.warnings.push(...(result.buyingCoordination.suspicions ?? []));
@@ -140,7 +152,7 @@ export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiqu
 
 export async function attachRisk(snapshot, risk, options) {
   try { return { ...snapshot, risk:await risk.check(snapshot,options) }; }
-  catch { return { ...snapshot, risk:null }; }
+  catch(error) { if(error instanceof AgentStoreError)throw error;return { ...snapshot, risk:null }; }
 }
 
 export function formatRiskReport(result, { compact = false } = {}) {

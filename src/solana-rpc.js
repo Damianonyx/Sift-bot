@@ -1,5 +1,6 @@
 import { isSolanaAddress } from './market.js';
 import { STREAMFLOW, TOKEN_PROGRAMS, rawAmount, base58Bytes } from './evidence-utils.js';
+import { setTimeout as delay } from 'node:timers/promises';
 
 export const RPC_URL = 'https://api.mainnet-beta.solana.com';
 export class SolanaRpcError extends Error {
@@ -45,8 +46,8 @@ async function readJson(response) {
 
 // Only bounded, read-only methods at the public mainnet endpoint. No generic
 // RPC proxy, account credentials, transaction submission or paid fallback.
-export function createSolanaRpc({ fetchImpl = fetch, now = Date.now } = {}) {
-  let requestId = 0, nextAllowedAt = 0;
+export function createSolanaRpc({ fetchImpl = fetch, now = Date.now, wait=delay, transactionIntervalMs=350 } = {}) {
+  let requestId = 0, nextAllowedAt = 0, nextTransactionAt=0;
   async function request(method, params, signal) {
     if (signal?.aborted) throw new SolanaRpcError('STOPPED');
     if (now() < nextAllowedAt) throw new SolanaRpcError('RATE_LIMITED', Math.ceil((nextAllowedAt - now()) / 1000));
@@ -83,6 +84,19 @@ export function createSolanaRpc({ fetchImpl = fetch, now = Date.now } = {}) {
     }
   }
   return {
+    async supply(mint,{signal}={}) {
+      if(!isSolanaAddress(mint))throw new SolanaRpcError('INVALID_REQUEST');
+      const r=await request('getTokenSupply',[mint,{commitment:'finalized'}],signal);
+      if(!Number.isSafeInteger(r?.context?.slot)||r.context.slot<0||!rawAmount(r.value?.amount)||!Number.isInteger(r.value.decimals)||r.value.decimals<0||r.value.decimals>255)throw new SolanaRpcError('INVALID_RESPONSE');
+      return {slot:r.context.slot,amount:r.value.amount,decimals:r.value.decimals};
+    },
+    async largest(mint,{signal}={}) {
+      if(!isSolanaAddress(mint))throw new SolanaRpcError('INVALID_REQUEST');
+      const r=await request('getTokenLargestAccounts',[mint,{commitment:'finalized'}],signal);
+      if(!Number.isSafeInteger(r?.context?.slot)||r.context.slot<0||!Array.isArray(r.value)||r.value.length>20||new Set(r.value.map(a=>a.address)).size!==r.value.length||
+        r.value.some(a=>!isSolanaAddress(a.address)||!rawAmount(a.amount)||!Number.isInteger(a.decimals)||a.decimals<0||a.decimals>255))throw new SolanaRpcError('INVALID_RESPONSE');
+      return {slot:r.context.slot,accounts:r.value.map(a=>({address:a.address,amount:a.amount,decimals:a.decimals}))};
+    },
     async accounts(addresses, { signal, minContextSlot } = {}) {
       if (!Array.isArray(addresses) || !addresses.length || addresses.length > 44 || !addresses.every(isSolanaAddress) ||
           (minContextSlot !== undefined && (!Number.isSafeInteger(minContextSlot) || minContextSlot < 0))) {
@@ -112,6 +126,12 @@ export function createSolanaRpc({ fetchImpl = fetch, now = Date.now } = {}) {
     },
     async transaction(signature, { signal } = {}) {
       if (base58Bytes(signature, 64)?.length !== 64) throw new SolanaRpcError('INVALID_REQUEST');
+      if(signal?.aborted)throw new SolanaRpcError('STOPPED');
+      if(now()<nextAllowedAt)throw new SolanaRpcError('RATE_LIMITED',Math.ceil((nextAllowedAt-now())/1000));
+      const scheduled=Math.max(now(),nextTransactionAt);nextTransactionAt=scheduled+transactionIntervalMs;
+      if(scheduled>now()) {
+        try{await wait(scheduled-now(),undefined,{signal});}catch{throw new SolanaRpcError('STOPPED');}
+      }
       const tx = await request('getTransaction', [signature, { commitment: 'finalized', encoding: 'jsonParsed', maxSupportedTransactionVersion: 0 }], signal);
       if (tx === null) return null;
       if (!Number.isSafeInteger(tx?.slot) || tx.slot < 0 || !tx.meta || !Object.hasOwn(tx.meta, 'err') ||

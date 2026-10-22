@@ -15,6 +15,13 @@ provider observations for the same pool; it does not certify their accuracy.
 unknown, so the owner's complete risk policy cannot yet produce matching alerts.**
 The website redesign and public release remain deferred.
 
+This update adds compact alerts with saved evidence, separate group strategies,
+posting cadence and quiet hours, optional after-call checks, an immutable call
+ledger with fixed-horizon paper outcomes, tester feedback, promotion disclosure,
+holder-account samples and read-only position-size quotes. See the complete
+[competitor-opportunity implementation and operating guide](docs/scout-intelligence.md),
+including what remains unverified or unsupported.
+
 ## Current capabilities
 
 - DEX Screener market snapshots with one selected pool, retrieval times, unknown
@@ -68,6 +75,14 @@ feed access; they did not verify these new risk claims or continuous hosting.
 | `/pause`, `/stop` | Pause/stop discovery and all your market monitors |
 | `/resume` | Resume discovery; resume individual monitors in `/watchlist` |
 | `/alerts`, `/unmute <CA>` | Saved discovery reports and token unmute |
+| `/preferences` | Follow-ups, UTC quiet hours, sizing and paper-cost assumptions |
+| `/performance [ID]`, `/calls [PAGE]` | All-call outcomes, missing observations and saved delivery attempts |
+| `/feedback ID RATING OUTCOME` | Unverified private tester feedback, separate from market results |
+| `/followstop ID` | Stop one call's private follow-up notifications |
+| `/size <CA> <USDC>` | Read-only Raydium entry/exit quotes; no wallet or transaction |
+| `/holders <CA>`, `/poolcoverage <CA>` | Bounded account samples and indexed pools, with explicit coverage limits |
+| `/mapextras`, `/audit` | Preview exact risk-policy mapping; inspect rule/configuration history |
+| `/groupstrategy CHAT_ID`, `/groupconfig CHAT_ID MINUTES MAX`, `/grouppause CHAT_ID` | Independent group rules and posting controls, configured privately |
 
 Start with the [description and group setup guide](docs/agent-discovery.md).
 See [Pump.fun scouting and its coverage limits](docs/pumpfun-discovery.md) and
@@ -156,7 +171,10 @@ while its process runs; a calendar week is not a claim of seven-day uptime.
 
 Local `.sift/agents.sqlite` stores per-user criteria, drafts, polling receipts,
 scan/watch state, evaluations, mutes, group destinations/delivery records and AI
-request reservations. Original descriptions may be saved with criteria. Its directory
+request reservations. It also retains original call snapshots, fixed-horizon
+observations, follow-up events, preferences, rule/configuration history and
+unverified tester feedback. These records are not automatically pruned; monitor
+disk usage and include them in private backups. Original descriptions may be saved with criteria. Its directory
 and database use restrictive permissions; the database is not encrypted. Keep
 `.sift/` and WAL/SHM files private and back up with the bot stopped. Restarting
 with the same database preserves state; deleting the runtime/database loses it.

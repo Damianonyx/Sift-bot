@@ -88,7 +88,7 @@ export function createScanCommands({ agents, feed }) {
         scanSummary(agents, id), reason,
         saved.approved ? `Approved rules · ${saved.approved.name}\n${saved.approved.rules.map(describeRule).join('\n')}` : '',
         DISCOVERY_COVERAGE,
-        `Private test limits: roughly one cycle/minute, up to ${ALERT_LIMIT} new alerts per cycle per user. Extra matches may be delayed or missed; /scan shows suppression. Quiet hours are not implemented.`,
+        `Private test limits: roughly one cycle/minute, up to ${ALERT_LIMIT} new alerts per cycle per user. Extra matches may be delayed or missed; /scan shows suppression. /preferences sets UTC quiet hours. There is no paid priority or artificial free-tier delay.`,
         'Only approved supported rules are applied. Risk checks have limited coverage; unknown bundle coverage blocks the full risk policy. Market monitoring is separate: use /watch. Unknown required metrics cannot pass. An unapproved edit does not change a running scan’s previously approved rules.',
       ].filter(Boolean).join('\n\n'), [
         ...(!reason && scan.state !== 'active' ? [[button('Start discovery', id, 'start', saved.revision)]] : []),
@@ -113,8 +113,10 @@ export function createScanCommands({ agents, feed }) {
         }
         agents.discoverySet(id, command === 'pause' ? 'paused' : 'stopped', scan.criteria_key);
         agents.watchAllControl(id, command);
-        return reply(command === 'pause' ? 'Discovery paused. Market monitors also paused; their end times are unchanged. Use /resume for discovery and /watchlist to resume individual monitors. An alert already being sent may still arrive.' :
-          'Discovery stopped. Market monitors also stopped. Your criteria and report history remain saved. Use /scan or /watch to review before starting again. An alert already being sent may still arrive.');
+        for(const group of agents.groupList(id))if(group.state!=='stopped')agents.groupState(group.chat_id,command==='pause'?'paused':'stopped');
+        agents.preferencesPut(id,{...agents.preferences(id),followHours:0},Date.now());
+        return reply(command === 'pause' ? 'Discovery and group posting paused. Market monitors also paused; their end times are unchanged. Follow-up notifications disabled. Use /resume for discovery, /watchlist for monitors, /groups for group review, and /preferences for future follow-ups. An alert already being sent may still arrive.' :
+          'Discovery, group posting and market monitors stopped. Follow-up notifications disabled. Your criteria, evidence and performance history remain saved. Use /scan, /groups or /watch to review before starting again. An alert already being sent may still arrive.');
       });
     }
     if (command === 'alerts') {
