@@ -2,7 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { assertApprovable, evaluateAgent, formatRuleEvaluation } from './rules.js';
 import { criteriaKey } from './discovery-store.js';
 import { formatTokenReport } from './token-report.js';
-import { MarketDataError } from './market.js';
+import { MarketDataError, isSolanaAddress } from './market.js';
 import { AgentStoreError } from './agent-store.js';
 import { TelegramError } from './telegram.js';
 import { withCopyableCAs } from './telegram-format.js';
@@ -29,6 +29,9 @@ export function formatDiscoveryAlert(agent, snapshot, feed, candidate) {
 
 export function createDiscoveryRunner({ feed, market, agents, risk, groups, call, allowedUserIds, now = Date.now, wait = delay }) {
   let nextDeliveryAt = 0;
+  const usable = (snapshot, token) => snapshot?.address === token &&
+    Number.isFinite(snapshot.fetchedAt) && snapshot.fetchedAt <= now() && now() - snapshot.fetchedAt <= 120_000 &&
+    (!snapshot.selected || isSolanaAddress(snapshot.selected.address));
   function current(id, key) {
     if (!allowedUserIds.has(id)) return null;
     const scan = agents.discoveryGet(id);
@@ -81,6 +84,7 @@ export function createDiscoveryRunner({ feed, market, agents, risk, groups, call
           await wait(error.retryAfter * 1000, undefined, { signal });
           snapshot = await market.check(candidate.address, { signal });
         }
+        if (!usable(snapshot, candidate.address)) throw new MarketDataError('INVALID_RESPONSE');
       } catch {
         if (signal?.aborted) return;
         for(const stat of groupStats.values())stat.issue='MARKET_UNAVAILABLE';
@@ -103,40 +107,52 @@ export function createDiscoveryRunner({ feed, market, agents, risk, groups, call
         const approved = current(id, scan.criteria_key);
         if (!approved || signal?.aborted) continue;
         const stat = stats.get(id);
-        const result = evaluateAgent(approved, snapshot,{ now:now() });
+        const fresh = usable(snapshot, candidate.address);
+        const result = evaluateAgent(approved, fresh ? snapshot : { ...snapshot, selected:null, risk:null },{ now:now() });
         if (result.checks.some((r) => RISK_FIELDS.includes(r.field) && r.state === 'unknown')) stat.issue = 'RISK_UNKNOWN';
         stat.checked++;
         if (!snapshot.selected) stat.issue = 'MARKET_NOT_INDEXED';
+        if (!fresh) stat.issue = 'MARKET_UNAVAILABLE';
         agents.discoveryRecord(id, scan.criteria_key, candidate.address, snapshot.fetchedAt, result);
         if (!result.matches) continue;
         stat.matched++;
-        if (agents.discoverySeen(id, scan.criteria_key, candidate.address)) continue;
-        if (agents.discoveryMuted(id, candidate.address) || stat.sent >= ALERT_LIMIT || quietNow(agents.preferences(id),now())) { stat.suppressed++; continue; }
-        if (now() < nextDeliveryAt) { stat.suppressed++; stat.issue = 'DELIVERY_LIMITED'; continue; }
+        // A private mute/quiet period also suppresses inherited destinations.
+        // Private delivery deduplication/caps do not consume a group's own budget.
+        if (agents.discoveryMuted(id, candidate.address) || quietNow(agents.preferences(id),now())) { stat.suppressed++; continue; }
         const text = signalCard(approved, snapshot, {now:now(),batch,candidate});
         if (text.length > 4000) { stat.issue = 'REPORT_TOO_LONG'; continue; } // leave room for /alerts history header
-        const eventId = agents.discoveryReserve(id, scan.criteria_key, candidate.address, now(), { text, snapshot, strategy:approved,
-          evidence:evidencePages(approved,snapshot,batch,candidate) });
-        if (eventId === null) continue;
-        stat.sent++;
-        try {
-          await call('sendMessage', withCopyableCAs({ chat_id: id, text, link_preview_options: { is_disabled: true },
-            reply_markup: { inline_keyboard: [[{ text: 'View evidence', callback_data: `evidence:${id}:${eventId}:0` }], [{ text: 'Monitor', callback_data: `watch:${id}:prompt:${eventId}:0` }], [
-              { text: 'Dismiss', callback_data: `scan:${id}:dismiss:${eventId}` },
-              { text: 'Mute token', callback_data: `scan:${id}:mute:${eventId}` },
-            ]] } }, [candidate.address]), signal);
-          agents.discoveryDelivery(id, eventId, 'sent');
-        } catch (error) {
-          if (error instanceof AgentStoreError) throw error;
-          const definitive = error instanceof TelegramError && Number.isInteger(error.code);
-          agents.discoveryDelivery(id, eventId, definitive ? 'failed' : 'uncertain');
-          stat.issue = 'DELIVERY_ISSUE';
-          if (error instanceof TelegramError && [401, 404].includes(error.code)) throw error;
-          if (error instanceof TelegramError && error.code === 429) nextDeliveryAt = now() + error.retryAfter * 1000;
-          if (error instanceof TelegramError && error.code === 403) agents.discoverySet(id, 'paused', scan.criteria_key, 'CHAT_UNAVAILABLE');
-          // No blind retry after an ambiguous send. The saved report is in /alerts.
+        const pages = evidencePages(approved,snapshot,batch,candidate);
+        if (!agents.discoverySeen(id, scan.criteria_key, candidate.address)) {
+          if (stat.sent >= ALERT_LIMIT) stat.suppressed++;
+          else if (now() < nextDeliveryAt) { stat.suppressed++; stat.issue = 'DELIVERY_LIMITED'; }
+          else {
+            const eventId = agents.discoveryReserve(id, scan.criteria_key, candidate.address, now(), { text, snapshot, strategy:approved, evidence:pages });
+            if (eventId !== null) {
+              stat.sent++;
+              try {
+                await call('sendMessage', withCopyableCAs({ chat_id: id, text, link_preview_options: { is_disabled: true },
+                  reply_markup: { inline_keyboard: [[{ text: 'View evidence', callback_data: `evidence:${id}:${eventId}:0` }], [{ text: 'Monitor', callback_data: `watch:${id}:prompt:${eventId}:0` }], [
+                    { text: 'Dismiss', callback_data: `scan:${id}:dismiss:${eventId}` },
+                    { text: 'Mute token', callback_data: `scan:${id}:mute:${eventId}` },
+                  ]] } }, [candidate.address]), signal);
+                agents.discoveryDelivery(id, eventId, 'sent');
+              } catch (error) {
+                if (error instanceof AgentStoreError) throw error;
+                const definitive = error instanceof TelegramError && Number.isInteger(error.code);
+                agents.discoveryDelivery(id, eventId, definitive ? 'failed' : 'uncertain');
+                stat.issue = 'DELIVERY_ISSUE';
+                if (error instanceof TelegramError && [401, 404].includes(error.code)) throw error;
+                if (error instanceof TelegramError && error.code === 429) nextDeliveryAt = now() + error.retryAfter * 1000;
+                if (error instanceof TelegramError && error.code === 403) agents.discoverySet(id, 'paused', scan.criteria_key, 'CHAT_UNAVAILABLE');
+                // No blind retry after an ambiguous send. The saved report is in /alerts.
+              }
+            }
+          }
         }
-        if (now() >= nextDeliveryAt) await groups?.deliver(id, scan.criteria_key, candidate.address, text, { signal, snapshot, strategy:approved, pages:evidencePages(approved,snapshot,batch,candidate) });
+        if (now() >= nextDeliveryAt && current(id, scan.criteria_key) && usable(snapshot,candidate.address) &&
+          !agents.discoveryMuted(id,candidate.address) && !quietNow(agents.preferences(id),now())) {
+          await groups?.deliver(id, scan.criteria_key, candidate.address, text, { signal, snapshot, strategy:approved, pages });
+        }
       }
       for(const g of groupScans) {
         if(signal?.aborted)return;

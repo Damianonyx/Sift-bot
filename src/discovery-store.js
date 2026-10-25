@@ -75,6 +75,9 @@ export function discoveryStore(db, safe) {
     }),
     discoveryHistory: safe((id) => db.prepare('SELECT id,token,created_at,state FROM discovery_alerts WHERE user_id=? ORDER BY id DESC LIMIT 5').all(id)),
     discoveryIssues: safe((id) => db.prepare("SELECT COUNT(*) AS count FROM discovery_alerts WHERE user_id=? AND state IN ('pending','failed','uncertain')").get(id).count),
+    discoveryDiagnostics: safe((id, key) => db.prepare(`SELECT token,checked_at,result FROM discovery_checks
+      WHERE user_id=? AND criteria_key=? ORDER BY checked_at DESC,token LIMIT 20`).all(id,key)
+      .map(row => ({ ...row, result:JSON.parse(row.result) }))),
     discoveryMute: safe((id, token) => db.prepare('INSERT OR IGNORE INTO discovery_mutes VALUES (?,?)').run(id, token)),
     discoveryUnmute: safe((id, token) => db.prepare('DELETE FROM discovery_mutes WHERE user_id=? AND token=?').run(id, token)),
   };

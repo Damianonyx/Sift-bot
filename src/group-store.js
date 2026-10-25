@@ -45,6 +45,7 @@ export function groupStore(db, safe) {
       return row?JSON.parse(row.pages):null;
     }),
     groupGet: safe(get),
+    groupSeen: safe((chat,key,token)=>Boolean(db.prepare('SELECT 1 FROM group_deliveries WHERE chat_id=? AND criteria_key=? AND token=?').get(chat,key,token))),
     groupList: safe(owner => db.prepare('SELECT * FROM group_targets WHERE owner_id=? ORDER BY chat_id LIMIT 20').all(owner)),
     groupStage: safe((chat, owner, key, time) => {
       chatId(chat);

@@ -7,6 +7,7 @@ import { AgentStoreError } from './agent-store.js';
 import { evaluateAgent } from './rules.js';
 import { signalCard, evidencePages } from './signal-report.js';
 import { quietNow } from './intelligence-store.js';
+import { isSolanaAddress } from './market.js';
 
 const admin = member => ['creator', 'administrator'].includes(member?.status);
 const reply = (id, text, buttons = []) => ({chat_id:id, text, link_preview_options:{is_disabled:true},
@@ -16,6 +17,8 @@ const button = (text, owner, row, action) => ({text, callback_data:`group:${owne
 export function createGroups({ agents, call, botId, allowedUserIds, now = Date.now }) {
   let nextDeliveryAt = 0;
   const sent = new Map();
+  const usable = (snapshot, token) => snapshot?.address === token && isSolanaAddress(snapshot.selected?.address) &&
+    Number.isFinite(snapshot.fetchedAt) && snapshot.fetchedAt <= now() && now() - snapshot.fetchedAt <= 120_000;
   async function authorized(chat, user, signal) {
     if (!Number.isSafeInteger(botId) || botId <= 0) return false;
     try {
@@ -124,15 +127,18 @@ export function createGroups({ agents, call, botId, allowedUserIds, now = Date.n
   async function deliver(owner,key,token,text,{signal,chatId=null,snapshot,strategy,pages}={}) {
     for (const row of agents.groupList(owner).filter(r=>r.state==='active' && r.criteria_key===key && (chatId?r.chat_id===chatId:!agents.groupSettings(r.chat_id).strategy))) {
       const config=agents.groupSettings(row.chat_id);
-      if (signal?.aborted || now()<nextDeliveryAt || (sent.get(row.chat_id)??0)>=config.max_per_cycle ||
+      if (signal?.aborted || agents.groupSeen(row.chat_id,key,token) || now()<nextDeliveryAt || (sent.get(row.chat_id)??0)>=config.max_per_cycle ||
         config.last_attempt!==null&&now()-config.last_attempt<config.interval_minutes*60000 || quietNow(agents.preferences(owner),now())) continue;
       const permitted = current(owner,key,row.chat_id) && await authorized(row.chat_id,owner,signal);
       if (signal?.aborted) return;
       if (!permitted) {
         agents.groupState(row.chat_id,'paused','ADMIN_OR_ACCESS_UNAVAILABLE');continue;
       }
-      const latest=agents.groupGet(row.chat_id), scan=agents.discoveryGet(owner);
-      if (signal?.aborted || !current(owner,key,row.chat_id) || latest?.state!=='active' || latest.owner_id!==owner || latest.criteria_key!==key || latest.revision!==row.revision || !config.strategy&&(scan.state!=='active' || scan.criteria_key!==key)) continue;
+      const latest=agents.groupGet(row.chat_id), scan=agents.discoveryGet(owner), approved=current(owner,key,row.chat_id);
+      if (signal?.aborted || !approved || latest?.state!=='active' || latest.owner_id!==owner || latest.criteria_key!==key || latest.revision!==row.revision || !config.strategy&&(scan.state!=='active' || scan.criteria_key!==key || agents.discoveryMuted(owner,token))) continue;
+      // Permissions can take multiple network requests. Recheck both evidence
+      // freshness and explicit notification controls after those awaits.
+      if (quietNow(agents.preferences(owner),now()) || snapshot && (!usable(snapshot,token) || !evaluateAgent(approved,snapshot,{now:now()}).matches)) continue;
       const groupText=text.replace('Use /risk <CA> for detailed risk evidence. Monitor sets up market monitoring.','Open @SiftAgentbot privately for /risk evidence and monitoring.');
       if (groupText.length>4096) {agents.groupState(row.chat_id,'paused','REPORT_TOO_LONG');continue;}
       const event=agents.groupReserve(row.chat_id,owner,key,token,now(),snapshot&&strategy?{snapshot,strategy,pages}:null);if(event===null)continue;
@@ -154,7 +160,7 @@ export function createGroups({ agents, call, botId, allowedUserIds, now = Date.n
     async match(target,snapshot,batch,candidate,{signal}={}) {
       const live=agents.groupGet(target.chat_id),strategy=current(target.owner_id,target.criteria_key,target.chat_id);
       if(!strategy||live?.state!=='active'||live.revision!==target.revision)return null;
-      const result=evaluateAgent(strategy,snapshot,{now:now()});
+      const result=evaluateAgent(strategy,usable(snapshot,candidate.address)?snapshot:{...snapshot,selected:null,risk:null},{now:now()});
       if(result.matches)await deliver(target.owner_id,target.criteria_key,candidate.address,signalCard(strategy,snapshot,{now:now(),batch,candidate}),
         {signal,chatId:target.chat_id,snapshot,strategy,pages:evidencePages(strategy,snapshot,batch,candidate)});
       return result;

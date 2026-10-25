@@ -94,8 +94,10 @@ export function createWatchRunner({ agents, market, call, allowedUserIds, now = 
         const pinnedPool = row.baseline.selected.address;
         const key = row.token + ':' + pinnedPool;
         try {
-          if (!snapshots.has(key)) snapshots.set(key, await watchMarketCheck(market, row.token, { signal, poolAddress: pinnedPool }, wait));
-          snapshot = snapshots.get(key);
+          // Share a failed request too, rather than retrying the same outage
+          // once for every user monitoring this pool during the cycle.
+          if (!snapshots.has(key)) snapshots.set(key, watchMarketCheck(market, row.token, { signal, poolAddress: pinnedPool }, wait));
+          snapshot = await snapshots.get(key);
           if (!usableWatchSnapshot(snapshot, row.token, now(), pinnedPool)) { snapshot = null; issue = 'SOURCE_UNAVAILABLE'; }
           else if (!Number.isFinite(snapshot.selected.liquidityUsd) || snapshot.selected.liquidityUsd < 0) issue = 'LIQUIDITY_UNKNOWN';
         } catch (error) {

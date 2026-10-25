@@ -13,6 +13,7 @@ import { formatSourceHealth } from './candidate-sources.js';
 import { withCopyableCAs } from './telegram-format.js';
 import { createSourceAudit, formatSourceAudit } from './source-audit.js';
 import { createIntelligenceCommands } from './intelligence-commands.js';
+import { explainDiscovery } from './discovery-diagnostics.js';
 
 export function createResponder({ market = createMarketData(), agents, feed, groups, quotes, holders, descriptionCommands, aiEnabled = false, liquidity = createLiquidityData(), risk = createRiskData({ liquidity }), bundles = createBundleData(), audit = createSourceAudit(), now = Date.now, wait } = {}) {
   const intelligence=agents?createIntelligenceCommands({agents,quotes,holders,now}):null;
@@ -35,6 +36,7 @@ export function createResponder({ market = createMarketData(), agents, feed, gro
     const context = commandFor(update);
     // Authorize before inspecting addresses or making any market-data request.
     if (!context || !allowedUserIds.has(context.userId)) return replyFor(update, allowedUserIds);
+    if (context.command === 'why' && agents) return explainDiscovery(agents,context.userId);
     if (context.command === 'status') {
       const response = replyFor(update, allowedUserIds);
       response.text += `\n\nDescription parser: local rules available. AI interpretation: ${aiEnabled ? 'configured; bounded API calls on unresolved descriptions' : 'disabled; no AI API calls'}.`;

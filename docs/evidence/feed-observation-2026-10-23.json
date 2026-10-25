@@ -1,0 +1,69 @@
+{
+  "checkedAt": "2026-10-23T15:09:39.266Z",
+  "sources": [
+    {
+      "source": "geckoterminal",
+      "state": "responded",
+      "checkedAt": 1792768176414
+    },
+    {
+      "source": "pumpportal",
+      "sourceUrl": "https://pumpportal.fun/data-api/real-time/",
+      "state": "receiving",
+      "checkedAt": 1792768179211,
+      "candidateCount": 1,
+      "rejected": 0,
+      "dropped": 0,
+      "expired": 0,
+      "interruptions": 0,
+      "messagesReceived": 3,
+      "controlMessages": 2,
+      "validMessages": 1,
+      "lastMessageAt": 1792768179211,
+      "retryAt": null
+    },
+    {
+      "source": "meteora-dlmm",
+      "state": "responded",
+      "checkedAt": 1792768177259,
+      "candidateCount": 23,
+      "invalidPools": 0
+    },
+    {
+      "source": "meteora-damm-v2",
+      "state": "responded",
+      "checkedAt": 1792768176630,
+      "candidateCount": 22,
+      "invalidPools": 0
+    }
+  ],
+  "observation": {
+    "startedAt": 1792768175756,
+    "completedAt": 1792768179265,
+    "durationMs": 3509,
+    "validMessages": 1,
+    "controlMessages": 2,
+    "rejected": 0,
+    "interruptions": 0,
+    "outcome": "events_received"
+  },
+  "candidateCount": 20,
+  "deferred": 41,
+  "partial": true,
+  "pumpEventDeliveryObserved": true,
+  "samples": [
+    {
+      "address": "9qzh5aXUS3cK8cXZZnjs7DxKbCUhrP2oPD8BWyULpump",
+      "provenance": [
+        {
+          "source": "pumpportal",
+          "kind": "create",
+          "receivedAt": 1792768179211,
+          "signature": "4GUnmHdrG7Kr99XLMGH5EChFNjHgUJNrq6qsGRGs8qu5L6JdjBHfsJmBAmJyHaVVUrA2Ti9nYBrmtHJ4TV8r8fKT",
+          "sourceUrl": "https://pumpportal.fun/data-api/real-time/"
+        }
+      ]
+    }
+  ],
+  "approvedRuleMatchVerified": false
+}

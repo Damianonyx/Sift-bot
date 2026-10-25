@@ -1,4 +1,4 @@
-import { RISK_FIELDS } from './risk.js';
+import { RISK_FIELDS } from './risk-fields.js';
 import { sixMonthsAfter, rawAmount } from './evidence-utils.js';
 import { isSolanaAddress } from './market.js';
 export const MARKET_FIELDS = ['marketCap', 'liquidityUsd', 'volume1h', 'poolAgeMinutes'];
