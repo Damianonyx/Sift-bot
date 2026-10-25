@@ -39,6 +39,8 @@ including what remains unverified or unsupported.
 - Fixed-pool USD-liquidity monitoring with captured market rules and controls.
 - LP burn verification for supported classic Raydium AMM v4/CPMM and PumpSwap accounts; narrow fixed-cliff
   Streamflow lock verification for classic SPL LP tokens with exact coverage.
+- PumpSwap pending fees and signed reserves are separated from quote liquidity.
+  Boosted pools show account observations while their protection stays unknown.
 - Pump `create` and supported `create_v2` signing-creator attribution, current holdings, direct PumpSwap
   sales, separate transfers, confirmed atomic coordinated buys and same-slot flags.
 - Launch signatures used as locators for finalized creation proof; up to three
@@ -54,8 +56,8 @@ including what remains unverified or unsupported.
 - Group admins configure privately, connect a destination in their group, then
   explicitly approve sharing future matches. Access is rechecked before posting.
 
-All 261 automated checks pass on Node.js 24.19.0. Fixtures
-are synthetic; tests contact no providers or Telegram. Live source accuracy,
+All 271 automated checks pass on Node.js 24.19.0. Tests use synthetic fixtures
+and a captured public PumpSwap account replay; they contact no providers or Telegram. Live source accuracy,
 new risk commands and end-to-end alert behavior still require owner acceptance.
 Earlier owner screenshots verified Telegram welcome/check replies and discovery
 feed access; they did not verify these new risk claims or continuous hosting.

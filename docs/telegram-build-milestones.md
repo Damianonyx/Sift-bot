@@ -5,7 +5,7 @@ This ledger separates implementation, offline tests and live observations.
 It does not declare the full screening policy complete or start a tester week.
 Hosting migration and the web app remain deferred. No paid service is enabled.
 
-Verification: **261 offline tests pass** on Node.js 24.19.0, including the new
+Verification: **271 offline tests pass** on Node.js 24.19.0, including the new
 scope, runtime/backup, CPMM, creator-pagination and outcome-replay regressions.
 Local preflight correctly refuses startup without a Telegram token in this
 workspace; that refusal is not live runtime acceptance.
@@ -75,9 +75,10 @@ These are source-shaped synthetic fixtures, not captured mainnet proofs.
 CPMM Token-2022 variants, CLMM, Meteora positions and unrecognized layouts remain
 unknown. Pool accounting minus mint supply is never treated as a burn.
 
-For the owner's PumpSwap example, the reader now reports the specific
-**nonzero virtual quote reserves** limitation. It does not label that pool
-unlocked. Supporting CPMM does not resolve this different pool format.
+The initial update reported a **nonzero virtual quote reserves** limitation for
+the owner's PumpSwap example. Milestone 6 below distinguishes ordinary pending
+fees from the boost component and exposes validated account facts. Boosted-pool
+protection remains unsupported; the reader does not label that pool unlocked.
 
 Live status: the [October 25 risk observation](evidence/risk-observation-2026-10-25.json)
 read 20 mint and 19 pool transaction bodies with matching successful signatures
@@ -158,11 +159,28 @@ behavior are covered by local process/database tests.
 | [Risk before update, October 23](evidence/risk-observation-before-2026-10-23.json) | Bounded sample interrupted; required checks unknown | Complete creator history |
 | [Risk after update, October 25](evidence/risk-observation-2026-10-25.json) | More transaction bodies read within the budget; required checks still unknown | A full-policy match, supported virtual-reserve protection or bundle absence |
 | [Sizing/holders, October 24](evidence/sizing-holders-2026-10-24.json) | No validated two-way quote; holders rate-limited | A verified executable quote or complete ownership data |
+| [PumpSwap accounts, October 25](evidence/pumpswap-liquidity-observation-2026-10-25.json) | Fresh linked-account read, zero LP supply, pending fees and positive boost component | Verified boosted-pool protection, a burn proof or a full-policy match |
 
 No Telegram credentials are present in this development workspace. Diagnostics
 made public read-only requests and did not send alerts, alter saved criteria,
 invite testers or deploy hosting. The [private test plan](private-testing.md)
 still governs the later owner/tester acceptance work.
+
+## 6. PumpSwap pending fees and boost separation
+
+Implemented and tested: signed reserve decoding, exact pending-fee subtraction,
+unboosted protection eligibility, and separate account observations for boosted
+pools. Negative virtual reserves that exactly offset pending fees no longer
+prevent the existing LP proof from being attempted. Positive boost components
+remain unsupported for protection, even with zero LP supply. The final lock
+custody reread also checks this restriction.
+
+The owner's example was freshly read through the updated reader: zero
+outstanding LP supply and its reserve breakdown are now visible. Protection
+correctly remains UNKNOWN because the pool is boosted. Tests replay captured
+account bytes and cover synthetic fee sweeps, malformed/truncated fields,
+overflow, stale burn evidence and pool-mode changes. These tests do not claim a
+positive live burn/lock proof. See [PumpSwap evidence](pumpswap-evidence.md).
 
 ## Remaining completion gates
 

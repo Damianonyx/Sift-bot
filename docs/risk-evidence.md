@@ -51,6 +51,12 @@ permissions and supply checks retain the restrictions documented in
 [PumpSwap account evidence](pumpswap-evidence.md) and
 [the bounded CPMM reader](telegram-build-milestones.md#liquidity-coverage).
 
+PumpSwap signed virtual reserves are reconciled with pending protocol/creator
+fees. When the boost component is zero, the supported LP proof can be attempted;
+pending fees are excluded from quote liquidity. Boosted pools expose validated
+account facts but cannot pass protection, including when LP supply is zero.
+The final lock-custody reread checks mode eligibility again.
+
 For a burn, inspect at most 20 recent LP-mint signatures. Require a successful
 SPL Token/Token-2022 `burn` or `burnChecked` instruction for this LP mint with a
 positive exact integer amount, at or before the current snapshot. Current LP

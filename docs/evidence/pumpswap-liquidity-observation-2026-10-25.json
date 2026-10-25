@@ -1,0 +1,51 @@
+{
+  "schemaVersion": 1,
+  "kind": "public-read-only-liquidity-observation",
+  "completedAt": "2026-10-25T19:56:31.381Z",
+  "address": "7GUnr7krtQhJwd6ASY2VUprd9t4c64zcgCsjdmZepump",
+  "result": {
+    "address": "7GUnr7krtQhJwd6ASY2VUprd9t4c64zcgCsjdmZepump",
+    "pool": "BRjMA8UALNp3diTKHfdeAn5riQrYPoaYez7KhYWD4oEs",
+    "marketFetchedAt": 1792958190647,
+    "poolCount": 1,
+    "selection": "reported_liquidity",
+    "fetchedAt": 1792958191381,
+    "sourceUrl": "https://api.mainnet-beta.solana.com",
+    "slot": 461383923,
+    "blockTime": 1792958190000,
+    "freshness": "recent",
+    "program": "pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA",
+    "lpMint": "6az4SN5Do3rUzUbPrG5LmAXPRHkbNviGG1fTMTPhqUFa",
+    "observation": {
+      "outstandingLp": "0",
+      "recordedLp": "4193388305325",
+      "lpDecimals": 9,
+      "noOutstandingLp": true,
+      "burnHistory": "unknown",
+      "timedLocks": "unknown",
+      "protectionRequirement": "unknown",
+      "protectionUnsupported": "PUMPSWAP_BOOST",
+      "quoteReserves": {
+        "mint": "So11111111111111111111111111111111111111112",
+        "rawBalance": "59499779740",
+        "virtual": "17583926498",
+        "protocolFees": "6612",
+        "creatorFees": "572369",
+        "real": "59499200759",
+        "effective": "77083706238",
+        "boost": "17584505479"
+      }
+    },
+    "reason": null,
+    "protectionRequirement": "unknown",
+    "protection": {
+      "state": "unknown",
+      "reason": "Boosted PumpSwap protection is not supported. Account balances and zero LP supply do not establish protection for this mode.",
+      "links": []
+    }
+  },
+  "report": "Sift · Liquidity evidence check\n\nSolana CA: 7GUnr7krtQhJwd6ASY2VUprd9t4c64zcgCsjdmZepump\n\nOverall liquidity protection: UNKNOWN. This report cannot pass a required protection check.\n\nBoosted PumpSwap protection is not supported. Account balances and zero LP supply do not establish protection for this mode.\n\nSelected pool: BRjMA8UALNp3diTKHfdeAn5riQrYPoaYez7KhYWD4oEs\nCoverage: one DEX Screener-selected pool from 1 supported market pools; other pools are not assessed. Selected by highest known reported USD liquidity.\n\nPool program: PumpSwap\nProgram evidence: https://solscan.io/account/pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA\n\nLP ownership tokens outstanding: 0.000000000\n\nObserved: the LP mint has zero outstanding supply at this slot. The pool and its linked vaults passed the supported account checks.\n\nQuote reserves (raw token units; not USD):\nQuote mint: So11111111111111111111111111111111111111112\nVault balance: 59499779740\nPending protocol / creator fees: 6612 / 572369\nAfter pending fees: 59499200759\nSigned virtual adjustment: 17583926498\nEffective pricing reserves: 77083706238\nBoost component: 17584505479\nPending fees and virtual amounts are not protected cash liquidity.\n\nBoosted pool: account observations only. LP protection remains UNKNOWN for this mode.\n\nBurn history: unknown. The pool’s recorded LP amount and the current mint supply can differ. Supply differences are not labelled burns.\n\nVerified lock percentage / unlock time: unknown or not applicable to verified burns.\n\n100% protected across all pools: unknown. Only supported Raydium/PumpSwap LP claims are assessed. Fixed, noncancelable Streamflow classic-SPL locks are supported; other lockers, positions and pool programs are unknown. Program upgrades are outside this snapshot guarantee.\n\nOn-chain snapshot: finalized slot 461383923\nEstimated block time: 2026-10-25T19:56:30.000Z\nSnapshot freshness: recent (within two minutes of retrieval; not a future guarantee).\n\nMarket pool selected at: 2026-10-25T19:56:30.647Z\nEvidence check completed: 2026-10-25T19:56:31.381Z\nNo Sift cache. RPC source: https://api.mainnet-beta.solana.com\n\nPool evidence: https://solscan.io/account/BRjMA8UALNp3diTKHfdeAn5riQrYPoaYez7KhYWD4oEs\n\nLP mint evidence: https://solscan.io/account/6az4SN5Do3rUzUbPrG5LmAXPRHkbNviGG1fTMTPhqUFa\n\nManual evidence only. Your saved rules and scan state are unchanged. Developer activity and bundles are not checked here.",
+  "telegramDeliveryVerified": false,
+  "approvedStrategyMatchVerified": false,
+  "note": "A fresh public account read through the updated reader. Boosted-pool protection remains unsupported; zero LP supply and parsed balances are not a verified burn, lock or safety guarantee."
+}

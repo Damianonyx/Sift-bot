@@ -44,6 +44,8 @@ export function verifiedBurn(tx, mint, tokenProgram) {
 }
 
 export async function verifyLiquidityProtection({ rpc, pool, snapshotSlot, observation, lpProgram, readLinked, now, signal }) {
+  const unsupportedMode = () => unknown('Boosted PumpSwap protection is not supported. Account balances and zero LP supply do not establish protection for this mode.');
+  if (observation.protectionUnsupported) return unsupportedMode();
   if (observation.outstandingLp === '0') {
     const rows = await rpc.signatures(pool.lpMint, { signal });
     for (const row of rows) {
@@ -65,6 +67,7 @@ export async function verifyLiquidityProtection({ rpc, pool, snapshotSlot, obser
   if (new Set(candidates.map((c) => c.escrow)).size !== candidates.length) return unknown('Duplicate escrow claims.');
   const addresses = candidates.flatMap((c) => [c.address, c.escrow]);
   const final = await readLinked(addresses, streams.slot);
+  if (final.observation.protectionUnsupported) return unsupportedMode();
   if (final.observation.outstandingLp === '0') return unknown('LP supply changed; repeat the burn verification.');
   let protectedAmount = 0n, shortAmount = 0n;
   const links = [], unlocks = [];

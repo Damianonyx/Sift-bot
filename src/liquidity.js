@@ -23,6 +23,7 @@ const REASONS = {
   LP_MINT_AUTHORITY: 'The LP mint did not have the expected initialization and authority settings.',
   VAULT_AUTHORITY: 'A pool vault did not have the expected mint, authority or permissions.',
   INCONSISTENT_LP_SUPPLY: 'The LP mint supply exceeded the pool’s recorded LP amount.',
+  INCONSISTENT_QUOTE_RESERVES: 'PumpSwap quote balances, pending fees or signed reserve adjustments were inconsistent or left no usable quote liquidity.',
   EMPTY_VAULT: 'A pool vault had no token balance; protection was not assessed.',
   POOL_CHANGED: 'The pool’s linked accounts changed during the check. Retry later.',
   POOL_ADDRESS: 'The pool or LP mint address did not match the documented program seeds.',
@@ -141,6 +142,11 @@ export function formatLiquidityReport(result) {
     lines.push(`LP ownership tokens outstanding: ${quantity}`);
     lines.push(observation.noOutstandingLp ? 'Observed: the LP mint has zero outstanding supply at this slot. The pool and its linked vaults passed the supported account checks.' :
       'Observed: LP tokens remain outstanding. They may be held by wallets or lockers; this check does not establish which.');
+    if (observation.quoteReserves) {
+      const q = observation.quoteReserves;
+      lines.push(`Quote reserves (raw token units; not USD):\nQuote mint: ${q.mint}\nVault balance: ${q.rawBalance}\nPending protocol / creator fees: ${q.protocolFees} / ${q.creatorFees}\nAfter pending fees: ${q.real}\nSigned virtual adjustment: ${q.virtual}\nEffective pricing reserves: ${q.effective}\nBoost component: ${q.boost}\nPending fees and virtual amounts are not protected cash liquidity.`);
+      if (observation.protectionUnsupported) lines.push('Boosted pool: account observations only. LP protection remains UNKNOWN for this mode.');
+    }
     lines.push(result.protection?.kind === 'burn' ? 'Burn evidence: a successful LP burn instruction was verified. Current LP supply is zero. This does not infer a burn percentage from a supply difference.' : result.program === PUMPSWAP ? 'Burn history: unknown. The pool’s recorded LP amount and the current mint supply can differ. Supply differences are not labelled burns.' :
       'Burn history: unknown. Supply differences can include an unissued protocol minimum; they are not labelled as burned liquidity. No burn transaction was traced.');
   }

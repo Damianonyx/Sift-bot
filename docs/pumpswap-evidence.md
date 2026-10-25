@@ -1,93 +1,108 @@
-# PumpSwap account observations
+# PumpSwap liquidity evidence
 
-> Historical stage notes. The current implementation, exact risk policy and remaining
-> coverage limits are documented in [risk evidence](risk-evidence.md). Earlier live
-> screenshots do not validate the newer verification paths.
+Sift reads the selected pool using its on-chain program owner, never the token
+name, `pump` suffix or DEX label. This document describes the current reader;
+see [risk evidence](risk-evidence.md) for the complete screening policy.
 
-The owner's 2026-10-12 screenshot confirmed that `/liquidity` reached public
-Solana RPC and read finalized slot 456075024. Its selected pool was owned by
-`pAMMBay6oceH9fJKBRHGP5D4bD4sWpmSwMn52FMfXEA`, the official PumpSwap program.
-The classic-Raydium-only reader correctly returned unsupported/unknown.
-This update adds a PumpSwap reader to the same `codex/liquidity-evidence` branch.
+## Account validation
 
-## Scope
+For PumpSwap, the reader validates the Anchor Pool discriminator, pool seed
+hash (stored bump, index, creator and mints), LP mint seed relationship and
+linked token vaults. The pool, LP mint and both vaults are reread together at a
+non-regressing finalized slot. These checks establish account relationships;
+they do not attest deployed bytecode or remove program upgrade authority.
 
-The command and pool-selection policy are unchanged. The reader is selected
-from the on-chain account owner, not the token name, `pump` suffix or DEX label.
-Both the initial and contextual reread must satisfy the same program reader.
-
-For PumpSwap, validate the Anchor Pool discriminator and the documented pool
-seed hash using the stored bump, index, creator and mints. Check the LP mint
-against the `pool_lp_mint`/pool seed hash with a matching bump. This establishes
-address relationships for a read-only observation; it does not attest deployed
-bytecode or the program's upgrade authority. No transaction is constructed.
-
-The stable pool prefix ends at byte 211: bump 8, index 9, creator 11, base mint
-43, quote mint 75, LP mint 107, base vault 139, quote vault 171, recorded LP
-amount 203. Support the documented appended fields through byte 287 and zero
-allocation padding, including older accounts missing complete trailing fields.
-Unknown nonzero tails, malformed booleans and partial nonzero fields fail closed.
-Mayhem mode and nonzero virtual quote reserves remain unsupported.
+The stable prefix ends at byte 211. Appended fields through byte 287 and zero
+allocation padding are supported. Missing complete trailing fields retain their
+documented zero/false defaults. Partial nonzero fields, malformed booleans,
+unknown nonzero tails and Mayhem mode remain unsupported.
 
 LP mints must belong to Token-2022, be initialized, have the expected pool mint
-authority and no freeze authority. Vaults can belong to classic SPL Token or
-Token-2022, but must have matching mint/owner links, initialized state, positive
-balance and no delegate/close authority. This does not inspect the underlying
-traded token's mint permissions or attribute a developer.
+authority and no freeze authority. Vaults can use classic SPL Token or supported
+Token-2022 layouts, with matching mint/owner links, initialized state, positive
+balances and no delegate/close authority. The reader does not assess all traded
+mint permissions or infer a developer from the pool creator or fee recipient.
 
-Token-2022 extension parsing validates type markers, padding, TLV boundaries,
-duplicate entries and lengths. The supported LP mint extensions are metadata
-pointer, structurally validated token metadata linked to that LP mint, and a
-disabled mint close authority. Vault extension support is limited to immutable
-owner. Financial, privileged or unknown extensions are rejected explicitly;
-their effects are not silently ignored. Metadata text/URLs are never displayed,
-followed or used as evidence of protection.
+Token-2022 parsing validates account markers, padding, TLV boundaries, duplicate
+extensions and lengths. Supported LP extensions are metadata pointer, bounded
+metadata linked to the LP mint, and a disabled mint close authority. Vault
+extension support is limited to immutable owner. Financial, privileged and
+unknown extensions remain unsupported. Metadata URLs are never followed.
 
-## Interpretation
+## Pending fees and signed reserves
 
-Reports label the program as PumpSwap and show its observed outstanding LP
-supply with slot, freshness and account links. PumpSwap's pool accounting can
-retain amounts that are absent from the live LP mint supply. This reader does
-not reconstruct those historical events or turn that difference into a verified
-burn/lock percentage. No burn transaction, lock owner or unlock timestamp is
-verified. Zero outstanding supply remains a snapshot observation.
+PumpSwap v2 trades can leave protocol and creator fees in the quote vault.
+Those fees are payable separately and are not LP liquidity. The reader uses
+exact BigInt arithmetic, including the signed 128-bit virtual reserve field:
 
-The public program documentation says migration normally burns received LP
-tokens. That general behavior is not evidence that a specific current pool has
-100% protection: later deposits, other pools, upgrades, and unsupported account
-features must still be considered. The pool's `coin_creator` field is used for
-fee allocation; it is not treated as proof of developer identity or holdings.
+```text
+pending fees = protocol_fees + creator_fees
+quote liquidity = quote vault balance - pending fees
+boost component = virtual_quote_reserves + pending fees
+effective pricing reserves = quote vault balance + virtual_quote_reserves
+```
 
-All protection requirements stay unknown. This update does not change drafts,
-approve rules or start scans. The six-month requirement remains intact.
+The last quantity is a pricing quantity, not a cash balance. Negative virtual
+reserves that exactly offset pending fees indicate a pool with no boost
+component. Such pools can use the existing bounded LP protection verifier.
+Fee sweeps reduce the raw vault balance and pending fees together; this does
+not by itself reduce the quote liquidity used in this account check.
 
-## Sources
+Negative boost components, fees consuming or exceeding the vault balance,
+nonpositive effective reserves and values outside the documented u64 range are
+rejected. Reported reserve values are raw quote-token units, not USD. They do
+not replace the market provider's USD-liquidity observation or saved thresholds.
 
-- [Official PumpSwap documentation](https://github.com/pump-fun/pump-public-docs/blob/2293f9a66c654e9fe82dc5e8f4618538f24bb35f/docs/PUMP_SWAP_README.md):
-  program identity, seed relationships, pool fields and accounting semantics.
-- [Pinned PumpSwap IDL](https://github.com/pump-fun/pump-public-docs/blob/2293f9a66c654e9fe82dc5e8f4618538f24bb35f/idl/pump_amm.json):
-  discriminator, appended fields and Token-2022 program used for LP creation.
-- [Pump migration documentation](https://github.com/pump-fun/pump-public-docs/blob/2293f9a66c654e9fe82dc5e8f4618538f24bb35f/docs/PUMP_PROGRAM_README.md).
-- [Token-2022 extension definitions](https://github.com/solana-program/token-2022/blob/b4724e6e7fecc8fc36295f861a769401bf92b270/interface/src/extension/mod.rs),
-  [metadata pointer](https://github.com/solana-program/token-2022/blob/b4724e6e7fecc8fc36295f861a769401bf92b270/interface/src/extension/metadata_pointer/mod.rs)
-  and [mint close authority](https://github.com/solana-program/token-2022/blob/b4724e6e7fecc8fc36295f861a769401bf92b270/interface/src/extension/mint_close_authority.rs).
+## Protection eligibility
 
-## Validation
+A positive boost component permits validated account observations, but **boosted
+pool protection remains UNKNOWN**. The pinned IDL treats boost liquidity
+operations differently from ordinary LP deposit/withdraw operations. Sift does
+not apply the legacy LP burn/lock proof to that mode, even with zero outstanding
+LP supply. A final custody reread changing to an unsupported mode cannot pass.
 
-76 offline tests pass. Ten new tests cover documented seed identities, legacy
-and appended layouts, Token-2022 supply, adversarial extensions and malformed
-data, owner/authority/link mismatches, contextual reads, report bounds, and a
-synthetic RPC-to-Telegram flow preserving the full draft and stopped scan.
-The address example comes from official docs; all binary payloads, balances
-and timestamps in tests are synthetic, not live findings about that pool.
+For an unboosted supported pool, zero LP supply still requires an actual
+successful LP burn transaction at or before the current account snapshot.
+Current account freshness, linkage and permission checks remain mandatory.
+The gap between recorded pool LP accounting and mint supply is never called a
+verified burn percentage. Nonzero LP supply requires exact supported custody;
+the present Streamflow reader supports classic-SPL escrows only, so a PumpSwap
+Token-2022 LP lock cannot qualify through that reader.
 
-- [x] Public RPC access and the unsupported-program response were verified by
-  the owner's screenshot.
-- [ ] Retest the same CA after updating this branch; inspect the actual pool
-  program, account response and any remaining unsupported features.
-- [ ] Independently compare the decoded LP mint/vault relationships and supply
-  with real on-chain data at the reported slot.
+All results cover one selected pool's current LP claims. Other pools, virtual
+pricing amounts, pending fees, future deposits, program upgrades and token
+safety are not covered by that proof. Unknown required checks continue to block
+matches. Manual reads never approve drafts or start scanning.
 
-No real PumpSwap LP balance, burn or timed lock has been verified by the new
-decoder yet. No API key, paid endpoint, hosting or wallet connection is added.
+## Validation and recorded live observations
 
+The offline suite includes synthetic fixtures for negative reserves with exact
+fee offsets, fee sweeps, positive and fee-masked boosts, overflow/inconsistent
+balances, partial appended fields, burn requirements, stale snapshots and pool
+mode changes. It also replays captured public account bytes; that replay is an
+offline regression, not a new live check.
+
+The [October 25 raw account capture](evidence/pumpswap-account-observation-2026-10-25.json)
+records the owner's example pool at finalized slot 461382716. A separate
+[fresh read through the updated reader](evidence/pumpswap-liquidity-observation-2026-10-25.json)
+returned the same balances at slot 461383923 with recent block time:
+
+- Zero outstanding LP mint supply; this is an account fact, not a burn proof.
+- Pending protocol/creator fees: 6,612 / 572,369 raw quote units.
+- Quote balance after pending fees: 59,499,200,759 raw units.
+- Positive boost component: 17,584,505,479 raw units.
+- Protection verdict: UNKNOWN, because boosted-pool protection is unsupported.
+
+These are public RPC observations. No positive burn or lock was independently
+verified, no Telegram message was sent, and no full-policy match was established.
+A positive unboosted fee-bearing burn path currently has synthetic coverage;
+it still needs independent live acceptance. No paid source or wallet is used.
+
+## Pinned references
+
+- [PumpSwap fee/reserve accounting](https://github.com/pump-fun/pump-public-docs/blob/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/docs/VIRTUAL_QUOTE_RESERVES_FEE_ADJUSTMENT.md)
+- [Signed virtual reserve semantics](https://github.com/pump-fun/pump-public-docs/blob/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/docs/NEGATIVE_VIRTUAL_QUOTE_RESERVES.md)
+- [PumpSwap IDL](https://github.com/pump-fun/pump-public-docs/blob/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/idl/pump_amm.json): Pool fields and `BoostPoolLiquidityUnsupported`.
+- [Official SDK 2.2.0](https://www.npmjs.com/package/@pump-fun/pump-swap-sdk/v/2.2.0): `src/sdk/offlinePumpAmm.ts` subtracts protocol/creator fees for LP deposit/withdraw inputs. The registry archive integrity was checked during source inspection; it is not a runtime dependency.
+- [Original pool/LP seed documentation](https://github.com/pump-fun/pump-public-docs/blob/2293f9a66c654e9fe82dc5e8f4618538f24bb35f/docs/PUMP_SWAP_README.md)
+- [Token-2022 extension definitions](https://github.com/solana-program/token-2022/blob/b4724e6e7fecc8fc36295f861a769401bf92b270/interface/src/extension/mod.rs)

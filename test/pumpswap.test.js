@@ -1,11 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 import { decodePumpSwapPool, observePumpSwapLp, PUMPSWAP, TOKEN_2022 } from '../src/pumpswap-liquidity.js';
 import { publicKeyBytes, publicKeyString, TOKEN_PROGRAM, LiquidityEvidenceError } from '../src/raydium-liquidity.js';
 import { createLiquidityData, formatLiquidityReport } from '../src/liquidity.js';
 import { createSolanaRpc } from '../src/solana-rpc.js';
 import { createResponder } from '../src/commands.js';
 import { openAgentStore } from '../src/agent-store.js';
+import { verifyLiquidityProtection } from '../src/liquidity-protection.js';
+import { burn, sig, streamFixture, LP as OTHER_LP } from './fixtures/risk.js';
 
 // Address/seed example from the pinned official PumpSwap README. All binary
 // payloads, supplies and times below are SYNTHETIC, not observed chain data.
@@ -71,12 +74,124 @@ test('spoofed PumpSwap owner, discriminator, PDA seed and token linkage are reje
 });
 
 test('unsupported modes, partial nonzero fields and future unknown fields never use guessed layouts', () => {
-  for (const [offset,value,code] of [[243,1,'UNSUPPORTED_MAYHEM_MODE'],[245,1,'UNSUPPORTED_VIRTUAL_RESERVES'],[244,2,'ACCOUNT_LAYOUT'],[299,1,'ACCOUNT_LAYOUT']]) {
+  for (const [offset,value,code] of [[243,1,'UNSUPPORTED_MAYHEM_MODE'],[244,2,'ACCOUNT_LAYOUT'],[299,1,'ACCOUNT_LAYOUT']]) {
     const f=fixture(); f.bytes[0][offset]=value;
     assert.throws(()=>decodePumpSwapPool(f.accounts()[0],CA,POOL),new RegExp(code));
   }
   const f=fixture(); f.bytes[0]=f.bytes[0].subarray(0,250); f.bytes[0][249]=1;
   assert.throws(()=>decodePumpSwapPool(f.accounts()[0],CA,POOL),/ACCOUNT_LAYOUT/);
+});
+
+function reserves(f, { virtual = 0n, protocol = 0n, creator = 0n, quote = 100_000_000n } = {}) {
+  const signed = BigInt.asUintN(128, virtual);
+  f.bytes[0].writeBigUInt64LE(signed & ((1n << 64n) - 1n),245);
+  f.bytes[0].writeBigUInt64LE(signed >> 64n,253);
+  f.bytes[0].writeBigUInt64LE(protocol,271);f.bytes[0].writeBigUInt64LE(creator,279);
+  f.bytes[3].writeBigUInt64LE(quote,64);
+  return f;
+}
+
+test('negative PumpSwap reserves exactly offset pending fees with full integer precision', () => {
+  const protocol=9_007_199_254_740_993n,creator=7n,quote=protocol+creator+123456789n;
+  const f=reserves(fixture(),{virtual:-(protocol+creator),protocol,creator,quote});
+  const result=observe(f);
+  assert.equal(result.quoteReserves.virtual,'-9007199254741000');
+  assert.equal(result.quoteReserves.real,'123456789');assert.equal(result.quoteReserves.effective,'123456789');
+  assert.equal(result.quoteReserves.boost,'0');assert.equal(result.protectionUnsupported,undefined);
+  assert.equal(result.protectionRequirement,'unknown');
+});
+
+test('fee sweeps change raw balances without changing actual unboosted quote reserves', () => {
+  const before=observe(reserves(fixture(),{virtual:-100n,protocol:60n,creator:40n,quote:2100n}));
+  const after=observe(reserves(fixture(),{quote:2000n}));
+  assert.notEqual(before.quoteReserves.rawBalance,after.quoteReserves.rawBalance);
+  assert.equal(before.quoteReserves.real,after.quoteReserves.real);
+  assert.equal(before.quoteReserves.effective,after.quoteReserves.effective);
+  assert.equal(before.outstandingLp,after.outstandingLp);
+});
+
+test('positive or fee-masked boost reserves allow account observations but never LP protection', async () => {
+  for (const virtual of [25n,-40n]) {
+    const f=reserves(fixture(),{virtual,protocol:60n,creator:40n});
+    const source={...rpc(f),signatures:async()=>assert.fail('Boost must not be assessed using legacy burns'),
+      streams:async()=>assert.fail('Boost must not be assessed using legacy locks')};
+    const result=await createLiquidityData({rpc:source,now:()=>NOW}).check(snapshot(),{verifyProtection:true});
+    assert.equal(result.reason,null);assert.equal(result.observation.outstandingLp,'0');
+    assert.equal(result.protectionRequirement,'unknown');assert.match(result.protection.reason,/Boosted PumpSwap/);
+    assert.equal(result.observation.quoteReserves.boost,(virtual+100n).toString());
+    const report=formatLiquidityReport(result);assert.ok(report.length<4096,report.length);
+    assert.match(report,/raw token units; not USD/);assert.match(report,/LP protection remains UNKNOWN/);
+    assert.doesNotMatch(report,/Overall liquidity protection: PASS/);
+  }
+});
+
+test('unboosted fee-bearing zero LP supply still needs an actual successful burn and current evidence', async () => {
+  for (const variant of ['verified','absent','wrong_mint','failed','stale']) {
+    const f=reserves(fixture(),{virtual:-100n,protocol:60n,creator:40n});
+    const tx=burn();tx.slot=1233;tx.transaction.message.instructions[0].programId=TOKEN_2022;
+    tx.transaction.message.instructions[0].parsed.info.mint=variant==='wrong_mint'?OTHER_LP:LP;
+    if(variant==='failed')tx.meta.err={InstructionError:[0,'failed']};
+    const source={...rpc(f),signatures:async()=>variant==='absent'?[]:[{signature:sig(2),slot:1233,err:null}],
+      transaction:async()=>tx,blockTime:async()=>NOW-(variant==='stale'?120001:5000)};
+    const result=await createLiquidityData({rpc:source,now:()=>NOW}).check(snapshot(),{verifyProtection:true});
+    assert.equal(result.protectionRequirement,variant==='verified'?'pass':'unknown');
+    if(variant==='verified'){assert.equal(result.protection.kind,'burn');assert.match(formatLiquidityReport(result),/Selected-pool LP claims only/);}
+  }
+});
+
+test('outstanding LP claims are never protected just because pending-fee accounting reconciles', async () => {
+  const f=reserves(fixture({supply:1n}),{virtual:-100n,protocol:60n,creator:40n});
+  const result=await createLiquidityData({rpc:{...rpc(f),streams:async()=>({slot:1234,accounts:[]})},now:()=>NOW})
+    .check(snapshot(),{verifyProtection:true});
+  assert.equal(result.observation.outstandingLp,'1');assert.equal(result.protectionRequirement,'unknown');
+});
+
+test('inconsistent pending fees, signed underflow and effective reserve overflow fail closed', () => {
+  for(const values of [
+    {virtual:-101n,protocol:60n,creator:40n},
+    {virtual:-100n,protocol:60n,creator:40n,quote:100n},
+    {virtual:-100n,protocol:60n,creator:40n,quote:99n},
+    {virtual:1n,quote:(1n<<64n)-1n},
+    {virtual:1n<<100n}, {virtual:-(1n<<127n)},
+    {virtual:0n,protocol:(1n<<64n)-1n,creator:1n,quote:(1n<<64n)-1n},
+  ])assert.throws(()=>observe(reserves(fixture(),values)),/INCONSISTENT_QUOTE_RESERVES/);
+});
+
+test('partial nonzero signed or fee fields are not accepted as zero defaults', () => {
+  for(const length of [250,260,272,278,280,286]) {
+    const f=reserves(fixture(),{virtual:-100n,protocol:60n,creator:40n});f.bytes[0]=f.bytes[0].subarray(0,length);
+    assert.throws(()=>decodePumpSwapPool(f.accounts()[0],CA,POOL),/ACCOUNT_LAYOUT/);
+  }
+});
+
+test('a contextual pool reread becoming boosted cannot use an earlier unboosted observation', async () => {
+  const f=reserves(fixture(),{virtual:-100n,protocol:60n,creator:40n}),source=rpc(f),accounts=source.accounts;
+  source.accounts=async(keys,options)=>{if(keys.length>1)reserves(f,{virtual:1n});return accounts(keys,options);};
+  source.signatures=async()=>assert.fail('Final boosted state must prevent burn lookup');
+  const result=await createLiquidityData({rpc:source,now:()=>NOW}).check(snapshot(),{verifyProtection:true});
+  assert.equal(result.protectionRequirement,'unknown');assert.equal(result.observation.quoteReserves.boost,'1');
+});
+
+test('lock custody reread cannot pass after pool mode becomes unsupported', async () => {
+  const lock=streamFixture();
+  const result=await verifyLiquidityProtection({rpc:{streams:async()=>({slot:101,accounts:[{pubkey:CA,account:lock.metadata()}]})},
+    pool:{lpMint:LP},snapshotSlot:100,observation:{outstandingLp:'1000'},lpProgram:TOKEN_PROGRAM,now:()=>NOW,
+    readLinked:async()=>({observation:{outstandingLp:'1000',protectionUnsupported:'PUMPSWAP_BOOST'},extra:[]})});
+  assert.equal(result.state,'unknown');assert.match(result.reason,/Boosted PumpSwap/);
+});
+
+test('captured public PumpSwap accounts replay as boosted observations, never a live protection pass', async () => {
+  // These bytes were fetched once on October 25. Replaying them is an offline
+  // regression, not another live observation or independent program audit.
+  const captured=JSON.parse(readFileSync(new URL('../docs/evidence/pumpswap-account-observation-2026-10-25.json',import.meta.url),'utf8'));
+  const source={accounts:async keys=>({slot:captured.slot,accounts:keys.length===1?[captured.accounts[0]]:captured.accounts}),
+    blockTime:async()=>captured.blockTime,signatures:async()=>assert.fail('No boost burn lookup')};
+  const result=await createLiquidityData({rpc:source,now:()=>captured.fetchedAt}).check({address:captured.mint,
+    selected:{address:captured.addresses[0]},poolCount:1,selection:'reported_liquidity',fetchedAt:captured.fetchedAt},{verifyProtection:true});
+  assert.equal(result.reason,null);assert.equal(result.lpMint,captured.addresses[1]);
+  assert.equal(result.observation.outstandingLp,'0');assert.equal(result.observation.quoteReserves.virtual,'17583926498');
+  assert.equal(result.observation.quoteReserves.real,'59499200759');assert.equal(result.observation.quoteReserves.boost,'17584505479');
+  assert.equal(result.protectionRequirement,'unknown');assert.ok(formatLiquidityReport(result).length<4096);
 });
 
 test('financial and unknown Token-2022 extensions are not ignored', () => {
