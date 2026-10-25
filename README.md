@@ -13,7 +13,9 @@ GeckoTerminal and direct Meteora DLMM/DAMM v2 APIs. `/verify <CA>` compares
 provider observations for the same pool; it does not certify their accuracy.
 **Unknown required checks never qualify a coin. General bundle coverage remains
 unknown, so the owner's complete risk policy cannot yet produce matching alerts.**
-The website redesign and public release remain deferred.
+Hosting migration, the web app and public release remain deferred.
+See the [Telegram build milestones](docs/telegram-build-milestones.md) for the
+implemented, tested, live-observed and still-blocked parts of this build.
 
 This update adds compact alerts with saved evidence, separate group strategies,
 posting cadence and quiet hours, optional after-call checks, an immutable call
@@ -35,19 +37,24 @@ including what remains unverified or unsupported.
   explicit activation, private reports, delivery
   records, pause/resume/stop, dismissal and mute controls.
 - Fixed-pool USD-liquidity monitoring with captured market rules and controls.
-- LP burn verification for supported Raydium/PumpSwap accounts; narrow fixed-cliff
+- LP burn verification for supported classic Raydium AMM v4/CPMM and PumpSwap accounts; narrow fixed-cliff
   Streamflow lock verification for classic SPL LP tokens with exact coverage.
 - Pump `create` and supported `create_v2` signing-creator attribution, current holdings, direct PumpSwap
   sales, separate transfers, confirmed atomic coordinated buys and same-slot flags.
-- Launch signatures used as locators for finalized creation proof; per-address
-  transaction sample counts and reserved capacity for pool activity checks.
+- Launch signatures used as locators for finalized creation proof; up to three
+  mint-signature pages, bounded transaction reads, and reserved pool-check capacity.
+- `/why` explains saved approval/evidence blockers without changing criteria or
+  making provider requests. `/mapextras` offers explicit liquidity-scope choices
+  when supported wording leaves that choice unresolved.
+- Default free-only configuration, one-process locking per local data directory,
+  read-only storage inspection and consistent backup/restore commands.
 - Read-only **Verification limits** controls in `/agent` and `/scan`; unmapped
   extra instructions stay saved and continue to block approval.
 - Read-only verification of a supplied Jito bundle ID against finalized on-chain buys.
 - Group admins configure privately, connect a destination in their group, then
   explicitly approve sharing future matches. Access is rechecked before posting.
 
-The automated checks run on Node.js 24.19.0. Fixtures
+All 261 automated checks pass on Node.js 24.19.0. Fixtures
 are synthetic; tests contact no providers or Telegram. Live source accuracy,
 new risk commands and end-to-end alert behavior still require owner acceptance.
 Earlier owner screenshots verified Telegram welcome/check replies and discovery
@@ -70,6 +77,7 @@ feed access; they did not verify these new risk claims or continuous hosting.
 | `/risk <CA>` | Liquidity, developer and buying evidence, flags and limitations |
 | `/bundle <CA> <ID>` | Verify a known Jito bundle; missing status stays unknown |
 | `/sources`, `/scan` | Inspect feed access; review and explicitly activate discovery |
+| `/why` | Explain saved screening blockers and recent check results without starting a scan |
 | `/watch <CA> <DROP_PERCENT> <HOURS>` | Review a market monitor; duration 1–168 whole hours |
 | `/watchlist`, `/watchalerts` | Monitor controls and saved reports |
 | `/pause`, `/stop` | Pause/stop discovery and all your market monitors |
@@ -120,7 +128,8 @@ not a wallet event subscription or a lock-break detector.
 
 ## Local setup and verification
 
-Node.js **24 LTS**; no third-party runtime packages or install step.
+Node.js **24 LTS** on Linux with `flock` (available in Codespaces and Ubuntu).
+No third-party runtime packages or install step.
 
 ```sh
 npm test
@@ -143,7 +152,10 @@ To connect the existing bot, configure `TELEGRAM_BOT_TOKEN` and
 An empty allowlist enables only private `/id` bootstrap; obtain your ID, add it
 to the allowlist and restart. Test-week preflight requires at least one tester.
 
-Run exactly one polling process. Startup verifies @SiftAgentbot and refuses to
+Run exactly one polling process. Startup holds a local OS lock for the configured
+data directory and refuses a second process using that directory. Separate
+hosts or separate copies of the database still require operator coordination.
+Startup verifies @SiftAgentbot and refuses to
 poll over an existing webhook; it never removes that webhook automatically.
 Telegram polling conflicts stop the process. Unlisted users cannot use evidence
 commands or background work. Group configuration is limited to verified admins;
@@ -158,10 +170,12 @@ started and no public release is automatic. General bundle coverage, live risk
 evidence, complete full-strategy discovery and continuous hosting remain open
 release requirements. Do not relax thresholds to manufacture a match.
 
-The default build makes **no paid AI calls**. Local description parsing and the
+The default build enforces **`SIFT_FREE_ONLY=true`** and makes **no paid AI calls**.
+It refuses to start with paid AI enabled while this guard is on. Local description parsing and the
 existing public data sources require no new paid subscription. Optional AI is
-off unless an operator explicitly sets `SIFT_AI_ENABLED=true`, `OPENAI_API_KEY`
-and `SIFT_AI_MODEL`. API usage is separately billed; ChatGPT/Codex credits do not
+off. A future separately funded operator would need to explicitly disable the
+free-only guard before enabling `SIFT_AI_ENABLED`, `OPENAI_API_KEY` and
+`SIFT_AI_MODEL`; keep the guard on for the current $0 build. API usage is separately billed; ChatGPT/Codex credits do not
 fund it. See the [limits and configuration](docs/agent-discovery.md#optional-ai-interpretation).
 No paid service was activated, and no hosting purchase was made. Codespaces is
 temporary and consumes existing compute/storage allowances. The bot only works
@@ -169,14 +183,16 @@ while its process runs; a calendar week is not a claim of seven-day uptime.
 
 ## Storage and operating limits
 
-Local `.sift/agents.sqlite` stores per-user criteria, drafts, polling receipts,
+Local `.sift/agents.sqlite` (or `SIFT_DATA_DIR/agents.sqlite`) stores per-user criteria, drafts, polling receipts,
 scan/watch state, evaluations, mutes, group destinations/delivery records and AI
 request reservations. It also retains original call snapshots, fixed-horizon
 observations, follow-up events, preferences, rule/configuration history and
 unverified tester feedback. These records are not automatically pruned; monitor
 disk usage and include them in private backups. Original descriptions may be saved with criteria. Its directory
 and database use restrictive permissions; the database is not encrypted. Keep
-`.sift/` and WAL/SHM files private and back up with the bot stopped. Restarting
+the data directory and WAL/SHM files private. Use the consistent backup tool in
+[storage recovery](docs/telegram-build-milestones.md#storage-recovery); copying
+only an active database file can omit committed WAL data. Restarting
 with the same database preserves state; deleting the runtime/database loses it.
 Corrupt state stops the bot rather than replacing user settings.
 

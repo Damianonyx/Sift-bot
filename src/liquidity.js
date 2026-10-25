@@ -2,12 +2,14 @@ import { isSolanaAddress } from './market.js';
 import { createSolanaRpc, RPC_URL, SolanaRpcError, rpcFailureReason } from './solana-rpc.js';
 import { decodeRaydiumPool, observeLpAccounts, LiquidityEvidenceError, RAYDIUM_V4 } from './raydium-liquidity.js';
 import { decodePumpSwapPool, observePumpSwapLp, PUMPSWAP } from './pumpswap-liquidity.js';
+import { decodeCpmmPool, observeCpmmLp, RAYDIUM_CPMM } from './cpmm-liquidity.js';
 import { verifyLiquidityProtection } from './liquidity-protection.js';
 import { unknown } from './evidence-utils.js';
 
 const READERS = new Map([
   [RAYDIUM_V4, { name: 'Raydium classic AMM v4', decode: decodeRaydiumPool, observe: observeLpAccounts }],
   [PUMPSWAP, { name: 'PumpSwap', decode: decodePumpSwapPool, observe: observePumpSwapLp }],
+  [RAYDIUM_CPMM, { name: 'Raydium CPMM (classic SPL)', decode: decodeCpmmPool, observe: observeCpmmLp }],
 ]);
 
 const REASONS = {
@@ -25,6 +27,9 @@ const REASONS = {
   POOL_CHANGED: 'The pool’s linked accounts changed during the check. Retry later.',
   POOL_ADDRESS: 'The pool or LP mint address did not match the documented program seeds.',
   UNSUPPORTED_POOL_MODE: 'This pool uses an unsupported mode or virtual-reserve configuration.',
+  UNSUPPORTED_MAYHEM_MODE: 'This PumpSwap pool has Mayhem mode enabled; its LP protection is not supported by this reader.',
+  UNSUPPORTED_VIRTUAL_RESERVES: 'This PumpSwap pool has nonzero virtual quote reserves; this reader cannot verify its LP protection. This does not establish that liquidity is unlocked.',
+  UNSUPPORTED_TOKEN_PROGRAM: 'This pool uses a token program or extension layout outside this reader’s supported classic-SPL configuration.',
   UNSUPPORTED_TOKEN_EXTENSION: 'A Token-2022 extension is not supported by this reader; protection remains unknown.',
   SOURCE_UNAVAILABLE: 'Solana RPC was unavailable or denied access.',
   INVALID_RESPONSE: 'Solana RPC did not return a usable response.',
@@ -59,6 +64,7 @@ export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } 
         const addresses = [result.pool, initial.lpMint, initial.baseVault, initial.quoteVault];
         const final = await rpc.accounts(addresses, { signal, minContextSlot: first.slot });
         const pool = reader.decode(final.accounts[0], snapshot.address, result.pool);
+        if (pool.openTime !== undefined && pool.openTime * 1000n > BigInt(now())) throw new LiquidityEvidenceError('POOL_NOT_TRADING');
         if (['lpMint', 'baseVault', 'quoteVault', 'baseMint', 'quoteMint', 'authority'].some((key) => initial[key] !== pool[key])) {
           throw new LiquidityEvidenceError('POOL_CHANGED');
         }
@@ -71,6 +77,7 @@ export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } 
               readLinked: async (extra, minContextSlot) => {
                 const reread = await rpc.accounts([...addresses, ...extra], { signal, minContextSlot });
                 const current = reader.decode(reread.accounts[0], snapshot.address, result.pool);
+                if (current.openTime !== undefined && current.openTime * 1000n > BigInt(now())) throw new LiquidityEvidenceError('POOL_NOT_TRADING');
                 if (['lpMint','baseVault','quoteVault','baseMint','quoteMint','authority'].some((k) => current[k] !== pool[k])) throw new LiquidityEvidenceError('POOL_CHANGED');
                 result.slot = reread.slot;
                 result.observation = reader.observe(current, reread.accounts.slice(1,4));

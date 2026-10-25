@@ -3,8 +3,9 @@ import { createLiquidityData, liquidityFailureReason } from './liquidity.js';
 import { developerFromCreation, developerActivity, buyingEvidence } from './wallet-evidence.js';
 import { unknown, txLink, accountLink, base58Bytes, successful } from './evidence-utils.js';
 import { AgentStoreError } from './agent-store.js';
+import { RISK_FIELDS } from './risk-fields.js';
 
-export const RISK_FIELDS = ['liquidityProtection', 'developerHolding', 'buyingCoordination'];
+export { RISK_FIELDS } from './risk-fields.js';
 export const TEST_RISK_RULES = Object.freeze(RISK_FIELDS.map((field) => Object.freeze({ field, mode:'require', policy:'private-test-v1' })));
 export const needsRisk = (rules) => rules?.some((r) => RISK_FIELDS.includes(r.field));
 
@@ -17,7 +18,7 @@ export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiqu
       const result = { address:snapshot.address, pool:snapshot.selected?.address ?? null, checkedAt:now(),
         liquidityProtection:unknown('Protection not verified.'), developerHolding:unknown('Developer attribution or balance not verified.'),
         buyingCoordination:unknown('Bundle and coordinated-buy coverage unavailable.'), events:[], warnings:[], coverage:[],
-        history:'Sample only: up to 20 recent signatures per address, 40 creator/wallet/pool transaction reads plus 20 LP burn reads. Older history and other wallets/venues are not covered.' };
+        history:'Sample only: up to three mint signature pages (60 rows), one creator/pool page each (20 rows), and 40 transaction reads plus 20 LP burn reads. Older/unreturned history and other wallets/venues remain unverified.' };
       if (busy || now() < nextAt || signal?.aborted || !result.pool) { result.warnings.push('Evidence check unavailable, limited, or no selected pool.'); return result; }
       busy = true; nextAt = now() + 60_000;
       const bounded = AbortSignal.any([...(signal ? [signal] : []), AbortSignal.timeout(45_000)]);
@@ -42,6 +43,31 @@ export function createRiskData({ rpc = createSolanaRpc(), liquidity = createLiqu
         let rows;
         try { rows = await rpc.signatures(address, options); }
         catch (error) { report.state = 'unavailable'; report.reason = rpcFailureReason(error); return values; }
+        if(role==='Mint') {
+          report.pages=1;report.enumerationEndObserved=rows.length<20;
+          const seen=new Set(rows.map(r=>r.signature));
+          let page=rows;
+          while(!report.enumerationEndObserved && report.pages<3) {
+            if(bounded.aborted) {report.paginationIssue='Pagination stopped at the evidence deadline.';break;}
+            let older;
+            try {older=await rpc.signatures(address,{...options,before:page.at(-1).signature});}
+            catch(error) {report.paginationIssue=rpcFailureReason(error);break;}
+            // A repeated cursor/page or forward-moving slot must never erase
+            // earlier evidence or be mistaken for additional history coverage.
+            if(older.some(r=>seen.has(r.signature)) || older.length && older[0].slot>page.at(-1).slot) {
+              report.paginationIssue='Mint pagination repeated signatures or moved forward; older history is unverified.';break;
+            }
+            report.pages++;
+            for(const row of older)seen.add(row.signature);
+            rows.push(...older);page=older;report.enumerationEndObserved=older.length<20;
+          }
+          report.pageLimitReached=!report.enumerationEndObserved && report.pages===3;
+          // Creation is usually older than current token activity. When the
+          // cursor advanced, spend the unchanged mint body budget on the oldest
+          // returned signatures first. This is a bounded search, not a claim
+          // that the RPC has retained every historical transaction.
+          if(report.pages>1)rows.reverse();
+        }
         report.returned = rows.length;
         for (const [index, row] of rows.entries()) {
           if (row.err !== null) { report.failed++; continue; }
@@ -170,7 +196,7 @@ export function formatRiskReport(result, { compact = false } = {}) {
     lines.push(...result.events.slice(0,3).map((e) => `${e.kind.toUpperCase()} · ${e.amount} raw token units\n${e.link}`));
     lines.push(...result.warnings, result.creationLookup,
       ...(result.coverage?.length ? ['Transaction sample (not complete history):\n' + result.coverage.map(c =>
-        `${c.role}: ${c.state}; ${c.read}/${c.returned} verified, ${c.failed} failed, ${c.missing} missing/invalid, ${c.omitted} omitted.${c.reason ? '\nReason: ' + c.reason : ''}`).join('\n')] : []), result.history,
+        `${c.role}: ${c.state}; ${c.read}/${c.returned} verified, ${c.failed} failed, ${c.missing} missing/invalid, ${c.omitted} omitted.${c.pages ? ` ${c.pages} signature page(s); ${c.enumerationEndObserved?'RPC enumeration ended (history may be pruned)':c.pageLimitReached?'page cap reached':'older enumeration incomplete'}.` : ''}${c.paginationIssue ? '\nPagination: '+c.paginationIssue : ''}${c.reason ? '\nReason: ' + c.reason : ''}`).join('\n')] : []), result.history,
       'Scope: selected pool only; Pump create/create_v2 signing creator and direct PumpSwap trades. Bonding-curve sales, other attribution/venues and unfamiliar layouts remain unknown. Six months = UTC calendar months, clamped to month-end.',
       `Checked: ${new Date(result.checkedAt).toISOString()}. Public finalized RPC; no paid fallback.\nUnknown required checks block qualification. Saved rules and scan state are unchanged.`);
   }

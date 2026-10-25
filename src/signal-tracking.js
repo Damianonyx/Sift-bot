@@ -5,13 +5,9 @@ import { attachRisk } from './risk.js';
 import { TelegramError } from './telegram.js';
 import { AgentStoreError } from './agent-store.js';
 import { withCopyableCAs } from './telegram-format.js';
+import { paperResult } from './paper-results.js';
 
-export function paperResult(entry,exit,costs) {
-  if(!Number.isFinite(entry)||entry<=0||!Number.isFinite(exit)||exit<0)return null;
-  const factor=(1-costs.feeBps/10000)*(1-costs.slippageBps/10000);
-  const grossPct=(exit/entry-1)*100,netPct=(exit/entry*factor*factor-1)*100;
-  return Number.isFinite(grossPct)&&Number.isFinite(netPct)?{grossPct,netPct}:null;
-}
+export { paperResult } from './paper-results.js';
 export function followChanges(row,current,time) {
   const previous=row.observation??row.snapshot,events=[];
   const evaluation=evaluateAgent(row.strategy,current,{now:time});
@@ -45,10 +41,14 @@ export function createSignalTracker({agents,market,risk,holders,call,allowedUser
     for(const row of rows) {
       if(signal?.aborted)return;
       if(!allowedUserIds.has(row.user_id))continue;
-      const time=now(),prior=agents.signalOutcomes(row.id);
+      const time=now();let prior=agents.signalOutcomes(row.id);
       for(const horizon of HORIZONS)if(time>row.at+horizon*60000+300000&&!prior.some(o=>o.horizon===horizon))
         agents.signalOutcome(row.id,horizon,'missed',time,{reason:'No observation within five minutes after the fixed horizon. No backfill or invented zero.'});
-      if(row.follow_until<=time&&agents.signalOutcomes(row.id).length===4)continue;
+      prior=agents.signalOutcomes(row.id);
+      // Downtime can leave an expired horizon pending. Record the gap without
+      // spending a source request when only future horizons remain.
+      const observationDue=HORIZONS.some(h=>time>=row.at+h*60000&&time<=row.at+h*60000+300000&&!prior.some(o=>o.horizon===h));
+      if(row.follow_until<=time&&!observationDue)continue;
       let snapshot=null,issue=null;
       try {
         const key=row.token+':'+row.pool;
@@ -62,14 +62,21 @@ export function createSignalTracker({agents,market,risk,holders,call,allowedUser
       } catch(error){if(error instanceof AgentStoreError)throw error;if(signal?.aborted)return;issue='Market observation unavailable';snapshot=null;}
       if(signal?.aborted||!allowedUserIds.has(row.user_id))continue;
       const completed=now();
+      if(snapshot&&!usableWatchSnapshot(snapshot,row.token,completed,row.pool)) {
+        snapshot=null;issue='Market observation became stale during follow-up checks';
+      }
       for(const horizon of HORIZONS) {
         const due=row.at+horizon*60000;
         if(completed<due||prior.some(o=>o.horizon===horizon))continue;
-        const value=snapshot&&paperResult(row.snapshot.selected?.priceUsd,snapshot.selected?.priceUsd,row.costs);
+        // Completion after a horizon cannot turn an earlier fetch into a
+        // horizon observation, including a response shared with another call.
+        const value=snapshot&&snapshot.fetchedAt>=due&&paperResult(row.snapshot.selected?.priceUsd,snapshot.selected?.priceUsd,row.costs);
         const late=completed>due+300000;
         agents.signalOutcome(row.id,horizon,late?'missed':value?'observed':'unavailable',completed,
           late?{reason:'Observation arrived outside the fixed horizon window.'}:{...value,price:snapshot?.selected?.priceUsd??null,
-            fetchedAt:snapshot?.fetchedAt??null,providerTime:null,costs:row.costs,reason:value?null:'Entry or exit price unavailable; not a zero return.'});
+            fetchedAt:snapshot?.fetchedAt??null,providerTime:null,costs:row.costs,reason:value?null:
+              snapshot&&snapshot.fetchedAt<due?'Snapshot was fetched before this horizon; no earlier price is backfilled.':
+                'Entry or exit price unavailable; not a zero return.'});
       }
       const old=row.observation??row.snapshot,price=snapshot?.selected?.priceUsd,base=row.snapshot.selected?.priceUsd;
       if(snapshot&&Number.isFinite(price)&&price>=0&&Number.isFinite(base)&&base>0) {

@@ -22,12 +22,13 @@ required checks to manufacture an alert.
 ## Owner acceptance before invitations
 
 1. Stop the previous polling process. Run exactly one process for @SiftAgentbot.
-2. In the existing Codespace, keep its `.sift/` directory and configured secrets.
+2. In the [existing Codespace](https://effective-carnival-wr5j9v5g9775c95q9.github.dev/), keep its `.sift/` directory and configured secrets.
    Do not delete the Codespace or database. Switch to the tested branch:
 
    ```sh
    git fetch origin &&
-   git switch codex/agent-group-discovery &&
+   git switch codex/live-discovery-check &&
+   git pull --ff-only origin codex/live-discovery-check &&
    npm test &&
    npm run preflight &&
    npm start
@@ -73,7 +74,9 @@ required checks to manufacture an alert.
     rule approval and scan activation are separate. Optional AI remains disabled
     unless separately configured; synthetic model tests are not live validation.
 
-Live evidence has not been validated here. This private build can test the
+See the [milestone evidence ledger](telegram-build-milestones.md) for bounded
+public-source observations. Successful Telegram delivery and positive risk
+proofs have not been live-validated by this milestone. This private build can test the
 implemented decisions and unknown behavior, but the full strategy/public release
 remain blocked by missing general bundle coverage and outstanding acceptance.
 
@@ -132,9 +135,9 @@ Keep unsuccessful trades and no-trade outcomes in the sample. A profitable week
 alone is not evidence that safety checks work or grounds for automatic public release.
 
 Private bot histories are `/alerts` and `/watchalerts`; each displays its latest
-five reports, while older records remain in the local database. Back up that
-database privately with the bot stopped, including any SQLite WAL/SHM sidecars,
-before changing or deleting the runtime. GitHub does not back up this data.
+five reports, while older records remain in the local database. Use the [consistent backup tool](telegram-build-milestones.md#storage-recovery)
+before changing or deleting the runtime. It includes committed WAL data; never
+copy only an active database file. GitHub does not back up this data.
 
 ## Public-release review remains separate
 

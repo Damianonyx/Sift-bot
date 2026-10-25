@@ -17,6 +17,7 @@ const RPC_FAILURES = new Map([
   ['TIMED_OUT', 'Solana RPC request timed out.'],
   ['STOPPED', 'Evidence check was stopped or reached its time limit.'],
   ['SOURCE_UNAVAILABLE', 'Solana RPC was unavailable or denied access.'],
+  ['NODE_BEHIND', 'Solana RPC node is behind; current evidence is unavailable.'],
   ['INVALID_RESPONSE', 'Solana RPC returned an unusable or mismatched response.'],
   ['NETWORK_OR_RESPONSE', 'Solana RPC could not be reached or read.'],
 ]);
@@ -46,7 +47,7 @@ async function readJson(response) {
 
 // Only bounded, read-only methods at the public mainnet endpoint. No generic
 // RPC proxy, account credentials, transaction submission or paid fallback.
-export function createSolanaRpc({ fetchImpl = fetch, now = Date.now, wait=delay, transactionIntervalMs=350 } = {}) {
+export function createSolanaRpc({ fetchImpl = fetch, now = Date.now, wait=delay, transactionIntervalMs=1100 } = {}) {
   let requestId = 0, nextAllowedAt = 0, nextTransactionAt=0;
   async function request(method, params, signal) {
     if (signal?.aborted) throw new SolanaRpcError('STOPPED');
@@ -64,7 +65,7 @@ export function createSolanaRpc({ fetchImpl = fetch, now = Date.now, wait=delay,
         if (response.status === 429) {
           const header = response.headers.get('retry-after');
           const seconds = /^\d+$/.test(header ?? '') ? Number(header) : (Date.parse(header) - now()) / 1000;
-          const retry = Number.isFinite(seconds) && seconds > 0 ? Math.ceil(seconds) : 60;
+          const retry = Number.isFinite(seconds) && seconds > 0 ? Math.min(86400,Math.ceil(seconds)) : 60;
           nextAllowedAt = now() + retry * 1000;
           throw new SolanaRpcError('RATE_LIMITED', retry);
         }
@@ -72,9 +73,20 @@ export function createSolanaRpc({ fetchImpl = fetch, now = Date.now, wait=delay,
       }
       const payload = await readJson(response);
       if (signal?.aborted) throw new SolanaRpcError('STOPPED');
-      if (payload?.jsonrpc !== '2.0' || payload.id !== id || payload.error || !Object.hasOwn(payload, 'result')) {
+      if (payload?.jsonrpc !== '2.0' || payload.id !== id) {
         throw new SolanaRpcError('INVALID_RESPONSE');
       }
+      if (payload.error) {
+        // Some public RPC gateways return throttling inside a HTTP-200 JSON-RPC
+        // envelope. Never surface their message/data or accept a mixed result.
+        if (Object.hasOwn(payload,'result')) throw new SolanaRpcError('INVALID_RESPONSE');
+        if ([429,-32429].includes(payload.error.code)) {
+          nextAllowedAt=now()+60_000;throw new SolanaRpcError('RATE_LIMITED',60);
+        }
+        if(payload.error.code===-32005) throw new SolanaRpcError('NODE_BEHIND');
+        throw new SolanaRpcError('INVALID_RESPONSE');
+      }
+      if (!Object.hasOwn(payload,'result')) throw new SolanaRpcError('INVALID_RESPONSE');
       return payload.result;
     } catch (error) {
       if (signal?.aborted) throw new SolanaRpcError('STOPPED');
@@ -115,13 +127,15 @@ export function createSolanaRpc({ fetchImpl = fetch, now = Date.now, wait=delay,
       }
       return { slot, accounts: result.value };
     },
-    async signatures(address, { signal } = {}) {
-      if (!isSolanaAddress(address)) throw new SolanaRpcError('INVALID_REQUEST');
-      const rows = await request('getSignaturesForAddress', [address, { commitment: 'finalized', limit: 20 }], signal);
+    async signatures(address, { signal, before } = {}) {
+      if (!isSolanaAddress(address) || before!==undefined && base58Bytes(before,64)?.length!==64) throw new SolanaRpcError('INVALID_REQUEST');
+      const rows = await request('getSignaturesForAddress', [address, { commitment: 'finalized', limit: 20,
+        ...(before===undefined?{}:{before}) }], signal);
       if (!Array.isArray(rows) || rows.length > 20 || rows.some((r) =>
         base58Bytes(r?.signature, 64)?.length !== 64 || !Number.isSafeInteger(r.slot) || r.slot < 0 ||
         !Object.hasOwn(r, 'err') || r.confirmationStatus !== 'finalized') ||
-        new Set(rows.map((r) => r.signature)).size !== rows.length) throw new SolanaRpcError('INVALID_RESPONSE');
+        new Set(rows.map((r) => r.signature)).size !== rows.length ||
+        rows.some((r,i)=>r.signature===before || i>0 && r.slot>rows[i-1].slot)) throw new SolanaRpcError('INVALID_RESPONSE');
       return rows;
     },
     async transaction(signature, { signal } = {}) {

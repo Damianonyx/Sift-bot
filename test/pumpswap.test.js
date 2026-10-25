@@ -71,7 +71,7 @@ test('spoofed PumpSwap owner, discriminator, PDA seed and token linkage are reje
 });
 
 test('unsupported modes, partial nonzero fields and future unknown fields never use guessed layouts', () => {
-  for (const [offset,value,code] of [[243,1,'UNSUPPORTED_POOL_MODE'],[245,1,'UNSUPPORTED_POOL_MODE'],[244,2,'ACCOUNT_LAYOUT'],[299,1,'ACCOUNT_LAYOUT']]) {
+  for (const [offset,value,code] of [[243,1,'UNSUPPORTED_MAYHEM_MODE'],[245,1,'UNSUPPORTED_VIRTUAL_RESERVES'],[244,2,'ACCOUNT_LAYOUT'],[299,1,'ACCOUNT_LAYOUT']]) {
     const f=fixture(); f.bytes[0][offset]=value;
     assert.throws(()=>decodePumpSwapPool(f.accounts()[0],CA,POOL),new RegExp(code));
   }

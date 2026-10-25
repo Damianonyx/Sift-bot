@@ -2,7 +2,8 @@
 
 Implementation is offline tested. No live burn, lock, creator holding, sale,
 coordinated-buy or Jito bundle has been independently validated by this change.
-The development workspace's proxy is unreachable and has no Telegram token.
+Bounded public-source checks are recorded in the [milestone ledger](telegram-build-milestones.md).
+This workspace has no Telegram token; those diagnostics send no messages.
 
 ## Required policy
 
@@ -47,7 +48,8 @@ changing a boolean or weakening the rule is insufficient.
 DEX Screener pool as `/check`. On-chain program identity, account linkage,
 permissions and supply checks retain the restrictions documented in
 [liquidity account evidence](liquidity-evidence.md) and
-[PumpSwap account evidence](pumpswap-evidence.md).
+[PumpSwap account evidence](pumpswap-evidence.md) and
+[the bounded CPMM reader](telegram-build-milestones.md#liquidity-coverage).
 
 For a burn, inspect at most 20 recent LP-mint signatures. Require a successful
 SPL Token/Token-2022 `burn` or `burnChecked` instruction for this LP mint with a
@@ -107,9 +109,13 @@ not attest deployed bytecode, remove upgrade authority or establish token safety
   not an assertion of malicious intent or proof of Jito membership. Distinct
   buyers in separate transactions in the same slot are only a suspicion.
 
-History is a **sample**, not an exhaustive history: at most 20 recent signatures
-for each inspected mint, creator and pool, with 40 creation/wallet/pool transaction
-reads in total, including a direct launch lookup. Mint history leaves 20 reads
+History is a **sample**, not an exhaustive history: up to three cursor pages
+(60 signatures) for the mint and one page (20 signatures) each for creator and
+pool, with 40 creation/wallet/pool transaction reads in total, including a direct
+launch lookup. When mint pagination advances, the oldest returned signatures
+are tried first within the same 20-body mint budget. Page limits, interrupted
+pagination and a returned end of enumeration are reported; an end can reflect
+pruned RPC history and does not establish completeness. Mint history leaves 20 reads
 available; creator history leaves 10 available for pool activity. With a verified
 direct creation lookup, recent mint enumeration is unnecessary. LP burn
 verification separately permits 20 reads. Transactions, including failed lookups,
@@ -161,6 +167,9 @@ manual check does not persist a new rule or silently change a running scan.
   risk deadline, 8-second individual RPC timeout, 256 KiB RPC response limit.
   Liquidity has a separate 30-second cooldown. Stream discovery is capped at
   20 metadata accounts; contextual reads at 44 accounts; holdings at 100 accounts.
+- Transaction reads are spaced by at least 1.1 seconds per RPC client. HTTP and
+  JSON-RPC throttling both activate shared backoff. The deadline can therefore
+  interrupt a large sample; it is a ceiling, not a promise to read every row.
 - Jito checks have their own 60-second cooldown, 20-second total deadline, 32 KiB
   response limit, at most five transaction reads and HTTP 429 backoff.
 - Chain time must be within two minutes, with at most 30 seconds future skew.

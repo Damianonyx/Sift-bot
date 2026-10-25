@@ -77,8 +77,9 @@ export function intelligenceStore(db,safe) {
     signalDue:safe((time,limit=4,users=null)=>{
       const ids=users===null?null:[...users].filter(Number.isSafeInteger);if(ids&&!ids.length)return [];
       return db.prepare(`SELECT * FROM signal_calls s WHERE delivery='sent' ${ids?`AND user_id IN (${ids.map(()=>'?').join(',')})`:''}
-      AND (follow_until>? OR (SELECT COUNT(*) FROM signal_outcomes o WHERE o.call_id=s.id)<4)
-      AND COALESCE(last_check,0)<=? ORDER BY COALESCE(last_check,0),at,id LIMIT ?`).all(...(ids??[]),time,time-60000,limit).map(decode);
+      AND (follow_until>? OR ${HORIZONS.map(h=>`(s.at+${h*60000}<=? AND NOT EXISTS
+        (SELECT 1 FROM signal_outcomes o WHERE o.call_id=s.id AND o.horizon=${h}))`).join(' OR ')})
+      AND COALESCE(last_check,0)<=? ORDER BY COALESCE(last_check,0),at,id LIMIT ?`).all(...(ids??[]),time,...HORIZONS.map(()=>time),time-60000,limit).map(decode);
     }),
     signalObserve:safe((id,snapshot,issue,time)=>db.prepare('UPDATE signal_calls SET last_check=?,observation=COALESCE(?,observation),issue=?,last_risk=COALESCE(?,last_risk) WHERE id=?').run(time,snapshot?JSON.stringify(snapshot):null,issue,snapshot?.risk?time:null,id)),
     signalOutcome:safe((id,horizon,state,time,data)=>{

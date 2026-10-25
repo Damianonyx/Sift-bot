@@ -13,6 +13,9 @@
     "preflight": "node --env-file-if-exists=.env scripts/preflight.js",
     "check:live": "node --use-env-proxy --env-file-if-exists=.env scripts/live-check.js",
     "check:sources": "node --use-env-proxy scripts/source-audit.js",
-    "check:feeds": "node --use-env-proxy --env-file-if-exists=.env scripts/feed-observation.js"
+    "check:feeds": "node --use-env-proxy --env-file-if-exists=.env scripts/feed-observation.js",
+    "check:risk": "node --use-env-proxy scripts/risk-observation.js",
+    "storage": "node scripts/storage.js",
+    "replay:calls": "node scripts/replay-calls.js"
   }
 }

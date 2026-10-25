@@ -23,6 +23,7 @@ import { createDescriptionCommands } from './description-commands.js';
 import { createPositionQuotes } from './position-size.js';
 import { createHolderData } from './holders.js';
 import { createSignalTracker } from './signal-tracking.js';
+import { acquireRuntimeLock, readRuntimeConfig } from './runtime-safety.js';
 
 const shutdown = new AbortController();
 for (const event of ['SIGINT', 'SIGTERM']) {
@@ -30,17 +31,24 @@ for (const event of ['SIGINT', 'SIGTERM']) {
 }
 
 async function main() {
+  const runtime = readRuntimeConfig(process.env);
   const { token, allowedUserIds } = readConfig(process.env);
   const aiConfig = readAiConfig(process.env);
   const pumpConfig = readPumpConfig(process.env);
   const meteoraConfig = readMeteoraConfig(process.env);
+  const lock = await acquireRuntimeLock({directory:runtime.directory});
+  try { await runBot({token,allowedUserIds,aiConfig,pumpConfig,meteoraConfig,lock}); }
+  finally { await lock.release(); }
+}
+
+async function runBot({token,allowedUserIds,aiConfig,pumpConfig,meteoraConfig,lock}) {
   const call = createTelegram(token);
   const runtimeStop = new AbortController();
-  const signal = AbortSignal.any([shutdown.signal, runtimeStop.signal]);
+  const signal = AbortSignal.any([shutdown.signal, runtimeStop.signal, lock.signal]);
   const identity = await call('getMe', {}, signal);
   const webhook = await call('getWebhookInfo', {}, signal);
   verifyBot(identity, webhook);
-  const agents = openAgentStore();
+  const agents = openAgentStore({directory:lock.directory});
   const market = createMarketData();
   const meteora = createMeteora(meteoraConfig);
   const feed = createCandidateSources({ gecko: createDiscoveryFeed(), pump: createPumpFeed(pumpConfig), meteora });
@@ -68,7 +76,7 @@ async function main() {
   });
   const tasks = [runPolling({ call, respond, agents, allowedUserIds, signal }),
     feed.run({ signal, shouldListen }), discovery.run({ signal, beforeCycle:monitoring.cycle, afterCycle:tracking.cycle })];
-  try { await Promise.all(tasks); }
+  try { await Promise.all(tasks); if(lock.signal.aborted)throw lock.signal.reason; }
   finally {
     runtimeStop.abort();
     feed.close();

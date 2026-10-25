@@ -43,7 +43,8 @@ export function decodePumpSwapPool(account, mint, address) {
   }
   for (const offset of [243,244,269,270]) if (data.length > offset && data[offset] > 1) return fail('ACCOUNT_LAYOUT');
   if (data.subarray(287).some(Boolean)) return fail('ACCOUNT_LAYOUT');
-  if ((data[243] ?? 0) !== 0 || data.subarray(245, Math.min(261, data.length)).some(Boolean)) return fail('UNSUPPORTED_POOL_MODE');
+  if ((data[243] ?? 0) !== 0) return fail('UNSUPPORTED_MAYHEM_MODE');
+  if (data.subarray(245, Math.min(261, data.length)).some(Boolean)) return fail('UNSUPPORTED_VIRTUAL_RESERVES');
   const pool = { baseMint: key(data, 43), quoteMint: key(data, 75), lpMint: key(data, 107),
     baseVault: key(data, 139), quoteVault: key(data, 171), lpReserve: data.readBigUInt64LE(203), authority: address };
   if (pool.baseMint !== mint && pool.quoteMint !== mint) return fail('TOKEN_POOL_MISMATCH');

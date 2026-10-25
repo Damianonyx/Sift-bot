@@ -1,5 +1,18 @@
 // Deliberately explicit grammar. Unrecognized or contradictory wording remains
 // unresolved; an AI model cannot silently relax scope or unknown handling.
+// A scope clarification adds only the selected scope to this exact supported
+// clause. Arbitrary liquidity wording, thresholds and durations are not rewritten.
+export function clarifyLiquidityScope(text, scope) {
+  if (typeof text !== 'string' || !['selected','all'].includes(scope)) return null;
+  const pattern = /(^|;|\n|\.\s+)((?:require|warn|flag) 100% )(liquidity protection(?:[,:] verified locks)? with (?:at least )?(?:six|6) (?:utc calendar )?months remaining(?:,? or verified lp burn(?:s|ing)(?: where valid for that pool type)?)\.?)(?=\s*(?:;|\n|$|\.\s+[A-Za-z]))/gi;
+  let count = 0;
+  const interpreted = text.replace(pattern, (match, separator, lead, rest) => {
+    count++;
+    return `${separator}${lead}${scope === 'all' ? 'all-pools' : 'selected-pool'} ${rest}`;
+  });
+  return count === 1 ? interpreted : null;
+}
+
 export function parsePolicyDescription(text) {
   const rules=[],unresolved=[],market=[];let developer=null,buying=null,partial=false,transfers=false,suspicions=false;
   for(const raw of text.split(/(?:;|\n|\.\s+(?=[A-Za-z]))+/).filter(x=>x.trim())) {

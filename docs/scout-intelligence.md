@@ -75,7 +75,10 @@ other percentages/durations are kept unresolved, not rounded or inferred.
 
 `/mapextras` previews whether saved draft extras can be mapped exactly. Applying
 that mapping edits the draft only; approval and scan activation remain separate.
-Ambiguous scope stays unresolved. Existing drafts are never automatically
+When the only missing detail is supported liquidity scope, explicit selected-pool
+and all-pools preview buttons are offered. Previewing does not edit the draft;
+applying a choice retains both the original and interpreted wording. Other
+ambiguous or unsupported instructions stay unresolved. Existing drafts are never automatically
 rewritten, narrowed, approved or activated by this upgrade.
 
 ## Independent groups
@@ -109,7 +112,9 @@ criteria, market snapshot, timestamp and paper costs before sending. Dismissing
 a discovery alert never deletes or changes that performance record. Failed and
 uncertain deliveries remain counted separately. Confirmed sends receive paper
 observations at **15 minutes, 1 hour, 6 hours and 24 hours**, using the same pool.
-The first attempt after each horizon must finish within five minutes. Otherwise
+A horizon observation must be fetched at or after that horizon and finish
+within five minutes. A snapshot fetched earlier is not promoted into a later
+horizon just because another evidence request took time. Otherwise
 the horizon is marked missed; no later observation is backfilled as if it had
 been available then. An unavailable price is not zero and not a zero return.
 
@@ -148,8 +153,10 @@ execution are not. The quotes are independent current-state observations, not a
 simulation of the entry changing pool reserves or a guarantee of future exit.
 
 Reference: [Raydium Trade API source documentation](https://github.com/raydium-io/raydium-docs-v1/blob/main/sdk-api/trade-api.mdx).
-The adapter has offline protocol-shaped tests. Live route availability could not
-be checked from this build environment; failures return UNKNOWN. The new
+The adapter has offline protocol-shaped tests. A bounded live request on 2026-10-24 returned no validated two-way quote for
+the sampled token, and the holder request was rate-limited. These failure
+observations are recorded in `evidence/sizing-holders-2026-10-24.json`; successful
+quote/holder outputs still need live validation. Failures return UNKNOWN. The new
 end-to-end bot paths need runtime acceptance after updating Codespaces.
 
 No paid service or hosting was activated. Optional AI remains disabled by

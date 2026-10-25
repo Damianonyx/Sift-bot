@@ -6,6 +6,7 @@ import { DISCOVERY_SCHEMA, discoveryStore } from './discovery-store.js';
 import { WATCH_SCHEMA, watchStore } from './watch-store.js';
 import { GROUP_SCHEMA, groupStore } from './group-store.js';
 import { validDescription } from './description-data.js';
+import { clarifyLiquidityScope } from './policy-description.js';
 import { INTELLIGENCE_SCHEMA, intelligenceStore } from './intelligence-store.js';
 
 export class AgentStoreError extends Error {
@@ -23,6 +24,13 @@ function validateState(state) {
     }
     validateRules(agent.rules, { requireStrict: false });
     if (agent.sourceDescription !== undefined && !validDescription(agent.sourceDescription)) throw new AgentStoreError();
+    if (agent.mappedExtras !== undefined) {
+      const mapped=agent.mappedExtras;
+      if (!mapped || !validDescription(mapped.originalText) || !validDescription(mapped.interpretedText) ||
+          ![null,'selected','all'].includes(mapped.liquidityScope) ||
+          (mapped.liquidityScope===null ? mapped.interpretedText!==mapped.originalText :
+            clarifyLiquidityScope(mapped.originalText,mapped.liquidityScope)!==mapped.interpretedText)) throw new AgentStoreError();
+    }
     if (agent.interpretation !== undefined && (kind !== 'draft' || !validDescription(agent.sourceDescription) ||
         !['Local parser','AI interpretation'].includes(agent.interpretation?.engine) ||
         !Array.isArray(agent.interpretation.unresolved) || agent.interpretation.unresolved.length>1 ||
