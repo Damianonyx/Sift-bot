@@ -24,6 +24,7 @@ import { createPositionQuotes } from './position-size.js';
 import { createHolderData } from './holders.js';
 import { createSignalTracker } from './signal-tracking.js';
 import { acquireRuntimeLock, readRuntimeConfig } from './runtime-safety.js';
+import { createWebServer, readWebConfig } from './web-server.js';
 
 const shutdown = new AbortController();
 for (const event of ['SIGINT', 'SIGTERM']) {
@@ -36,12 +37,13 @@ async function main() {
   const aiConfig = readAiConfig(process.env);
   const pumpConfig = readPumpConfig(process.env);
   const meteoraConfig = readMeteoraConfig(process.env);
+  const webConfig = readWebConfig(process.env);
   const lock = await acquireRuntimeLock({directory:runtime.directory});
-  try { await runBot({token,allowedUserIds,aiConfig,pumpConfig,meteoraConfig,lock}); }
+  try { await runBot({token,allowedUserIds,aiConfig,pumpConfig,meteoraConfig,webConfig,lock}); }
   finally { await lock.release(); }
 }
 
-async function runBot({token,allowedUserIds,aiConfig,pumpConfig,meteoraConfig,lock}) {
+async function runBot({token,allowedUserIds,aiConfig,pumpConfig,meteoraConfig,webConfig,lock}) {
   const call = createTelegram(token);
   const runtimeStop = new AbortController();
   const signal = AbortSignal.any([shutdown.signal, runtimeStop.signal, lock.signal]);
@@ -62,6 +64,7 @@ async function runBot({token,allowedUserIds,aiConfig,pumpConfig,meteoraConfig,lo
   const interpreter = createDescriptionInterpreter({ ...aiConfig, agents });
   const descriptionCommands = createDescriptionCommands({ agents, interpreter });
   const respond = createResponder({ agents, market, feed, liquidity, risk, bundles, groups, quotes, holders, audit, descriptionCommands, aiEnabled:aiConfig.enabled });
+  const web = webConfig ? createWebServer({config:webConfig,agents,respond,allowedUserIds,signal}) : null;
   const discovery = createDiscoveryRunner({ agents, market, feed, risk, groups, call, allowedUserIds });
   const monitoring = createWatchRunner({ agents, market, call, allowedUserIds });
   const tracking=createSignalTracker({agents,market,risk,holders,call,allowedUserIds});
@@ -74,12 +77,18 @@ async function runBot({token,allowedUserIds,aiConfig,pumpConfig,meteoraConfig,lo
     try { assertApprovable(approved); return criteriaKey(approved) === scan.criteria_key; }
     catch { return false; }
   });
-  const tasks = [runPolling({ call, respond, agents, allowedUserIds, signal }),
-    feed.run({ signal, shouldListen }), discovery.run({ signal, beforeCycle:monitoring.cycle, afterCycle:tracking.cycle })];
-  try { await Promise.all(tasks); if(lock.signal.aborted)throw lock.signal.reason; }
+  let tasks = [];
+  try {
+    if(web) {await web.listen();console.log('Sift web workspace enabled. Private testers can sign in with /web.');}
+    const telegramRespond = async (update,allowed,signal) => web?.telegram(update,allowed) ?? respond(update,allowed,signal);
+    tasks = [runPolling({ call, respond:telegramRespond, agents, allowedUserIds, signal }),
+      feed.run({ signal, shouldListen }), discovery.run({ signal, beforeCycle:monitoring.cycle, afterCycle:tracking.cycle })];
+    await Promise.all(tasks); if(lock.signal.aborted)throw lock.signal.reason;
+  }
   finally {
     runtimeStop.abort();
     feed.close();
+    await web?.close();
     await Promise.allSettled(tasks);
     agents.close();
   }

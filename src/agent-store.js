@@ -1,4 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { mkdirSync, chmodSync } from 'node:fs';
 import { join } from 'node:path';
 import { validateRules, assertApprovable } from './rules.js';
@@ -8,6 +9,11 @@ import { GROUP_SCHEMA, groupStore } from './group-store.js';
 import { validDescription } from './description-data.js';
 import { clarifyLiquidityScope } from './policy-description.js';
 import { INTELLIGENCE_SCHEMA, intelligenceStore } from './intelligence-store.js';
+
+// Browser retries use a separate receipt namespace; Telegram offsets never
+// acknowledge browser actions. Context follows only the current async request.
+const webReceipt = new AsyncLocalStorage();
+export const withWebReceipt = (key, action) => webReceipt.run(key, action);
 
 export class AgentStoreError extends Error {
   constructor() { super('Saved agent data could not be accessed. Sift stopped to preserve existing settings.'); }
@@ -66,6 +72,7 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
       CREATE TABLE IF NOT EXISTS runtime (key TEXT PRIMARY KEY, value INTEGER NOT NULL);
       INSERT OR IGNORE INTO runtime VALUES ('offset', 0);
       CREATE TABLE IF NOT EXISTS ai_requests (update_id INTEGER PRIMARY KEY, day TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS web_receipts (request_key TEXT PRIMARY KEY, response TEXT NOT NULL, expires_at INTEGER NOT NULL);
     `);
     db.exec(DISCOVERY_SCHEMA);
     db.exec(WATCH_SCHEMA);
@@ -120,17 +127,26 @@ export function openAgentStore({ directory = '.sift', memory = false } = {}) {
     // Agent mutations and their reply are committed together. Retrying an
     // update after a failed Telegram send must not advance the wizard twice.
     receipt: safe((updateId) => {
-      const row = db.prepare('SELECT response FROM agent_receipts WHERE update_id=?').get(updateId);
+      const key = webReceipt.getStore();
+      const row = key ? db.prepare('SELECT response FROM web_receipts WHERE request_key=?').get(key)
+        : db.prepare('SELECT response FROM agent_receipts WHERE update_id=?').get(updateId);
       return row ? JSON.parse(row.response) : null;
     }),
     process: safe((updateId, action) => {
       if (!Number.isSafeInteger(updateId + 1) || updateId < 0) throw new AgentStoreError();
       db.exec('BEGIN IMMEDIATE');
       try {
-        const receipt = db.prepare('SELECT response FROM agent_receipts WHERE update_id = ?').get(updateId);
+        const key = webReceipt.getStore();
+        const receipt = key ? db.prepare('SELECT response FROM web_receipts WHERE request_key=?').get(key)
+          : db.prepare('SELECT response FROM agent_receipts WHERE update_id = ?').get(updateId);
         const response = receipt ? JSON.parse(receipt.response) : action();
         if (response instanceof Promise) throw new AgentStoreError();
-        if (!receipt) db.prepare('INSERT INTO agent_receipts VALUES (?, ?)').run(updateId, JSON.stringify(response));
+        if (!receipt) {
+          if (key) {
+            db.prepare('DELETE FROM web_receipts WHERE expires_at < ?').run(Date.now());
+            db.prepare('INSERT INTO web_receipts VALUES (?,?,?)').run(key, JSON.stringify(response), Date.now()+86_400_000);
+          } else db.prepare('INSERT INTO agent_receipts VALUES (?, ?)').run(updateId, JSON.stringify(response));
+        }
         db.exec('COMMIT');
         return response;
       } catch (error) { db.exec('ROLLBACK'); throw error; }
