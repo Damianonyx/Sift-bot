@@ -36,6 +36,7 @@ export function createResponder({ market = createMarketData(), agents, feed, gro
     const context = commandFor(update);
     // Authorize before inspecting addresses or making any market-data request.
     if (!context || !allowedUserIds.has(context.userId)) return replyFor(update, allowedUserIds);
+    if (context.command === 'web' || context.command === 'start' && context.args === 'web') return {chat_id:context.chatId,text:'The web workspace is not enabled on this bot runtime yet. Your Telegram agent still works. The operator can enable SIFT_WEB_ENABLED after setting the app directory and public origin.'};
     if (context.command === 'why' && agents) return explainDiscovery(agents,context.userId);
     if (context.command === 'status') {
       const response = replyFor(update, allowedUserIds);
