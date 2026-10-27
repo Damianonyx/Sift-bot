@@ -12,7 +12,7 @@ const secret = () => randomBytes(32).toString('base64url');
 const hash = value => createHash('sha256').update(value).digest('hex');
 const fail = (status, message) => Object.assign(new Error(message), { status });
 const COMMANDS = new Set('agent describe setup cancel mapextras scan pause resume stop why check risk liquidity verify poolcoverage sources watch watchlist watchalerts alerts calls performance preferences groups groupstrategy groupconfig grouppause audit feedback followstop unmute holders size bundle status help'.split(' '));
-const TYPES = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.svg':'image/svg+xml', '.png':'image/png', '.jpg':'image/jpeg', '.woff':'font/woff' };
+const TYPES = { '.html':'text/html; charset=utf-8', '.js':'text/javascript; charset=utf-8', '.css':'text/css; charset=utf-8', '.svg':'image/svg+xml', '.png':'image/png', '.jpg':'image/jpeg', '.woff':'font/woff', '.webmanifest':'application/manifest+json; charset=utf-8' };
 
 export function readWebConfig(env) {
   if (env.SIFT_WEB_ENABLED !== 'true') return null;
