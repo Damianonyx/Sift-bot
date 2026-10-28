@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { fixture,input,CA } from './web-fixture.js';
-import { readWebConfig } from '../src/web-server.js';
+import { readWebConfig, isWebRequestHostAllowed } from '../src/web-server.js';
 import { withWebReceipt } from '../src/agent-store.js';
 
 async function setup(t,options={}) {
@@ -33,6 +33,56 @@ test('web config is opt-in, requires an app root and HTTPS except loopback',()=>
   assert.throws(()=>readWebConfig({SIFT_WEB_ENABLED:'true',SIFT_WEB_ROOT:'.',SIFT_WEB_ORIGIN:'https://user:pass@example.com'}));
   assert.equal(readWebConfig({SIFT_WEB_ENABLED:'true',SIFT_WEB_ROOT:'.',SIFT_WEB_ORIGIN:'http://localhost:3000'}).secure,false);
   assert.equal(readWebConfig({SIFT_WEB_ENABLED:'true',SIFT_WEB_ROOT:'.',SIFT_WEB_ORIGIN:'https://app.example.com'}).secure,true);
+});
+const codespaceEnv = {
+  SIFT_WEB_ENABLED:'true', SIFT_WEB_ROOT:'.', SIFT_WEB_PORT:'3000',
+  SIFT_WEB_ORIGIN:'https://test-sift-3000.app.github.dev',
+  CODESPACES:'true', CODESPACE_NAME:'test-sift', GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:'app.github.dev'
+};
+test('local tunnel hosts require the exact Codespace name, port and HTTPS origin',()=>{
+  const config=readWebConfig(codespaceEnv);
+  assert.deepEqual(config.codespaceLocalHosts,['localhost:3000','127.0.0.1:3000','[::1]:3000']);
+  for (const override of [
+    {CODESPACES:'false'}, {CODESPACE_NAME:''}, {CODESPACE_NAME:'another-sift'},
+    {SIFT_WEB_PORT:'3001'}, {SIFT_WEB_ORIGIN:'http://localhost:3000'},
+    {SIFT_WEB_ORIGIN:'https://test-sift-3000.app.github.dev.evil.invalid'},
+    {GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:'other.invalid'}
+  ]) assert.deepEqual(readWebConfig({...codespaceEnv,...override}).codespaceLocalHosts,[]);
+  const changedDomain=readWebConfig({...codespaceEnv,GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:'forward.example',SIFT_WEB_ORIGIN:'https://test-sift-3000.forward.example'});
+  assert.equal(changedDomain.codespaceLocalHosts.length,3);
+});
+test('forwarding headers cannot grant access or make an external peer local',()=>{
+  const config=readWebConfig(codespaceEnv);
+  const req=(host,remoteAddress,extra={})=>({headers:{host,...extra},socket:{remoteAddress}});
+  for(const peer of ['127.0.0.1','::1','::ffff:127.0.0.1'])
+    assert.equal(isWebRequestHostAllowed(req('localhost:3000',peer),config),true);
+  for(const peer of ['192.0.2.1','::ffff:192.0.2.1',undefined])
+    assert.equal(isWebRequestHostAllowed(req('localhost:3000',peer,{'x-forwarded-for':'127.0.0.1','x-forwarded-host':'test-sift-3000.app.github.dev'}),config),false);
+  assert.equal(isWebRequestHostAllowed(req('evil.invalid','127.0.0.1',{'x-forwarded-host':'test-sift-3000.app.github.dev'}),config),false);
+  assert.equal(isWebRequestHostAllowed(req('localhost:3001','127.0.0.1'),config),false);
+  assert.equal(isWebRequestHostAllowed(req('localhost:3000','127.0.0.1'),readWebConfig({...codespaceEnv,CODESPACES:'false'})),false);
+});
+test('Codespaces rewritten Host serves the app and completes sign-in without weakening API checks',async t=>{
+  const config=readWebConfig(codespaceEnv);
+  const f=await setup(t,{origin:config.origin,webConfig:config});
+  const headers={host:'localhost:3000','x-forwarded-host':new URL(config.origin).host};
+  assert.equal((await f.request('/app/',{headers})).status,200);
+  assert.equal((await f.request('/api/workspace',{headers})).status,401);
+  const code=f.code();
+  assert.equal((await f.request('/api/login',{headers,origin:'http://localhost:3000',body:{code}})).status,403);
+  assert.equal((await f.request('/api/login',{headers,origin:'https://evil.invalid',body:{code}})).status,403);
+  const login=await f.request('/api/login',{headers,body:{code}});
+  assert.equal(login.status,200);
+  assert.match(login.headers.get('set-cookie'),/^__Host-sift=.*Path=\/; HttpOnly; SameSite=Strict; Max-Age=28800; Secure$/);
+  assert.equal((await f.request('/api/login',{headers,body:{code}})).status,401);
+  const auth={headers,cookie:login.headers.get('set-cookie').split(';')[0],csrf:login.data.csrf};
+  assert.equal((await f.request('/api/workspace',auth)).status,200);
+  assert.equal((await f.request('/api/command',{headers,cookie:auth.cookie,body:{text:'/agent',requestId:randomUUID()}})).status,403);
+  assert.equal((await f.command(auth,'/agent')).status,200);
+  assert.equal((await f.request('/api/workspace',{...auth,headers:{...headers,'sec-fetch-site':'cross-site'}})).status,403);
+  assert.equal((await f.request('/api/workspace',{...auth,headers:{...headers,host:'evil.invalid'}})).status,403);
+  f.allowedUserIds.delete(42);
+  assert.equal((await f.request('/api/workspace',auth)).status,401);
 });
 test('web auth binds a one-use link to an allowed Telegram user; no client user IDs',async t=>{
   const f=await setup(t);assert.equal((await f.request('/api/workspace')).status,401);

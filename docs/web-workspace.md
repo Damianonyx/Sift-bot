@@ -6,7 +6,7 @@ and the existing background runners. There is still one poller and one database.
 It is disabled by default and adds no dependency or paid API.
 
 The client lives in `Damianonyx/SiftAgent`, under `dist/app`, on branch
-`codex/web-workspace`. Its `WEB_APP.md` contains setup and browser checks.
+`main`. Its `WEB_APP.md` contains setup and browser checks.
 
 Enable with `SIFT_WEB_ENABLED=true`, `SIFT_WEB_ROOT` pointing to that app folder,
 `SIFT_WEB_PORT=3000`, and `SIFT_WEB_ORIGIN` set to the exact browser origin. Only
@@ -17,6 +17,23 @@ In a Codespace, its forwarded HTTPS port URL is the origin, not the IDE URL.
 [Open the existing Codespace](https://effective-carnival-wr5j9v5g9775c95q9.github.dev/).
 Private port access remains gated by GitHub as well as Sift. No hosting migration
 is included and the runtime must stay running for both interfaces to work.
+
+With both repositories checked out side by side as `Sift-bot` and `SiftAgent`,
+run `npm run start:web` from the bot repository in Codespaces. This enables the
+web interface on loopback port 3000, uses `../SiftAgent/dist/app`, and derives
+the public HTTPS origin from the Codespaces environment. Existing bot credentials
+and data settings still load from `.env`; this command does not edit that file.
+Stop the previous bot process first. Keep forwarded port 3000 private and send
+`/web` again after restarting, since old sign-in links and sessions expire.
+
+Codespaces may rewrite the request Host to `localhost:3000`. When `CODESPACES`
+is `true` and the configured HTTPS origin exactly matches this Codespace's name,
+port and forwarding domain, the server also accepts local hostnames for that
+port from a loopback TCP peer only. Other deployments retain exact public Host
+checking. Forwarding headers never select the trusted origin or peer. Cookies
+remain Secure and every mutation still requires the exact public Origin and
+session CSRF token. Do not change `SIFT_WEB_ORIGIN` to localhost to work around
+a forwarded-host error.
 
 ## Authentication and mutations
 
@@ -50,6 +67,8 @@ The frontend only reads saved candidate checks; refresh does not trigger a scan.
 `test/web.test.js` exercises authentication, one-time link expiration, allowlist
 revocation, CSRF and host enforcement, private-file isolation, cross-user access,
 stale callbacks, duplicate commands and preservation of unresolved criteria.
+It also checks sign-in through a simulated Codespaces Host rewrite, including
+Secure cookies, denied foreign origins/hosts, and spoofed forwarding headers.
 It also runs description → review → approval → explicit activation → discovery
 against the real store and runner with synthetic providers and Telegram delivery.
 

@@ -9,6 +9,7 @@
   },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
+    "start:web": "SIFT_WEB_ENABLED=true SIFT_WEB_ROOT=../SiftAgent/dist/app SIFT_WEB_HOST=127.0.0.1 SIFT_WEB_PORT=3000 SIFT_WEB_ORIGIN=\"https://${CODESPACE_NAME:?Run start:web inside your Codespace}-3000.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-app.github.dev}\" node --env-file-if-exists=.env src/index.js",
     "test": "node --test --test-isolation=none test/*.test.js",
     "preflight": "node --env-file-if-exists=.env scripts/preflight.js",
     "check:live": "node --use-env-proxy --env-file-if-exists=.env scripts/live-check.js",

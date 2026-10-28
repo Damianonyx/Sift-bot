@@ -23,7 +23,19 @@ export function readWebConfig(env) {
       origin.protocol !== 'https:' && !(local && origin.protocol === 'http:')) throw Error('SIFT_WEB_ORIGIN requires HTTPS, except on localhost.');
   const port = Number(env.SIFT_WEB_PORT ?? 3000);
   if (!Number.isInteger(port) || port < 1024 || port > 65535 || !env.SIFT_WEB_ROOT) throw Error('Set SIFT_WEB_ROOT to the app directory and SIFT_WEB_PORT to 1024–65535.');
-  return { origin:origin.origin, port, host:env.SIFT_WEB_HOST || '127.0.0.1', root:resolve(env.SIFT_WEB_ROOT), secure:origin.protocol === 'https:' };
+  const codespaceHost = `${env.CODESPACE_NAME}-${port}.${env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN || 'app.github.dev'}`;
+  const codespace = env.CODESPACES === 'true' && /^[a-z0-9-]+$/.test(env.CODESPACE_NAME || '') &&
+    origin.protocol === 'https:' && origin.host === codespaceHost;
+  return { origin:origin.origin, port, host:env.SIFT_WEB_HOST || '127.0.0.1', root:resolve(env.SIFT_WEB_ROOT), secure:origin.protocol === 'https:',
+    codespaceLocalHosts:codespace ? [`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`] : [] };
+}
+
+export function isWebRequestHostAllowed(req, config) {
+  if (req.headers.host === new URL(config.origin).host) return true;
+  // Codespaces can rewrite Host on its local tunnel connection. Never derive
+  // the public origin or trust a peer from client-supplied forwarding headers.
+  const localPeer = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
+  return localPeer && Boolean(config.codespaceLocalHosts?.includes(req.headers.host));
 }
 
 export function createWebServer({ config, agents, respond, allowedUserIds, now = Date.now, signal }) {
@@ -105,7 +117,7 @@ export function createWebServer({ config, agents, respond, allowedUserIds, now =
     res.setHeader('Content-Security-Policy',"default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; connect-src 'self'; font-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'self'");
     const send = (status,data) => {res.writeHead(status,{'Content-Type':'application/json; charset=utf-8'});res.end(JSON.stringify(data));};
     try {
-      if (req.headers.host !== new URL(config.origin).host) throw fail(403,'Unrecognized app origin.');
+      if (!isWebRequestHostAllowed(req, config)) throw fail(403,'Unrecognized app origin.');
       const url = new URL(req.url,config.origin), path=url.pathname;
       if (path.startsWith('/api/')) {
         if (!['GET','POST'].includes(req.method)) throw fail(405,'Method not supported.');
