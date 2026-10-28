@@ -66,6 +66,11 @@ This is private-beta access, not public user registration. There is no browser
 wallet, trade execution, paid AI enablement, or new risk-verification capability.
 Unknown required checks and all unapproved instructions continue to block matches.
 The frontend only reads saved candidate checks; refresh does not trigger a scan.
+Each saved check includes the backend's rule description alongside its recorded
+state and observed value. These descriptions do not add new evidence or re-run
+screening. Completed drafts with supported mapping input expose a direct review
+button in both Telegram and web reports. Opening it does not mutate the draft;
+scope preview, applying the mapping, approval and scan activation remain separate.
 
 ## Tests and verification limits
 
@@ -82,3 +87,8 @@ The SiftAgent browser integration test checks the same server in Chromium, using
 only `test/web-fixture.js`'s isolated in-memory runtime. That fixture is not imported
 by the production entrypoint. No live Telegram delivery, real-user sign-in or
 public HTTPS deployment has been verified by these automated tests.
+
+The browser recovery test also covers phone layout, the full scope-review flow,
+unknown required evidence preventing alerts, saved-result explanations, connection
+outage recovery, preserving monitor input across refreshes, late dialog responses
+and clearing private state when a session is revoked.

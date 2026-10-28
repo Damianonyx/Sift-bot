@@ -166,6 +166,7 @@ test('web description, approval and activation share Telegram state and a real d
   const state=(await f.request('/api/workspace',auth)).data;
   assert.equal(state.calls.length,1);assert.equal(state.calls[0].token,CA);assert.equal(state.calls[0].delivery,'sent');
   assert.equal(state.candidateChecks[0].result.matches,true);
+  assert.match(state.candidateChecks[0].result.checks[0].description,/Required.*20,000.*60,000/);
   await f.command(auth,'/pause');assert.equal(f.agents.discoveryGet(42).state,'paused');
 });
 test('unresolved requirements survive web review; a second user cannot replay the buttons',async t=>{

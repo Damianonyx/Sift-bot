@@ -102,7 +102,9 @@ export function createWebServer({ config, agents, respond, allowedUserIds, now =
   }
   function state(session) {
     const id = session.userId, saved = agents.get(id), scan = agents.discoveryGet(id);
-    const candidateChecks = saved.approved ? agents.discoveryDiagnostics(id,criteriaKey(saved.approved)) : [];
+    const candidateChecks = saved.approved ? agents.discoveryDiagnostics(id,criteriaKey(saved.approved)).map(row => ({
+      ...row, result:{...row.result, checks:(row.result.checks ?? []).map(check => ({...check, description:describeRule(check)}))},
+    })) : [];
     const calls = agents.signalList(id,20).map(c=>({id:c.id,token:c.token,pool:c.pool,at:c.at,delivery:c.delivery,
       snapshot:c.snapshot,outcomes:agents.signalOutcomes(c.id)}));
     return {user:{name:session.name},serverTime:now(),agent:saved,

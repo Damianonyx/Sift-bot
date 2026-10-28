@@ -24,7 +24,10 @@ function setup(t,extra=original) {
 test('real saved extras require explicit scope preview, mapping, approval and separate activation',t=>{
   for(const [label,scope] of [['All pools','all'],['Selected pool','selected']]) {
     const s=setup(t),before=s.store.get(42),scan=s.store.discoveryGet(42);
-    const choice=s.respond(input('/mapextras'),allowed);assert.ok(action(choice,label));assert.deepEqual(s.store.get(42),before);
+    const reviewDraft=s.respond(input('/agent'),allowed);
+    const entry=action(reviewDraft,'Review supported mappings');assert.ok(entry);
+    const choice=s.respond(callback(entry),allowed);assert.ok(action(choice,label));assert.deepEqual(s.store.get(42),before);
+    assert.equal(choice.text,s.respond(input('/mapextras'),allowed).text);
     const preview=s.respond(callback(action(choice,label)),allowed);assert.match(preview.text,/Scope choice/);assert.deepEqual(s.store.get(42),before);
     const apply=callback(action(preview,'Apply mapping'));s.respond(apply,allowed);s.respond(apply,allowed);
     const mapped=s.store.get(42);assert.equal(mapped.revision,2);assert.equal(mapped.approved,null);

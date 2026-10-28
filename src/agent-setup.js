@@ -125,7 +125,9 @@ function view(state, id) {
     ...(state.draft && !approvalError ? [button('Approve rules', 'approve', id, state.revision)] : []),
     button('Edit rules', 'edit', id, state.revision),
     ...(state.draft ? [button('Discard draft', 'cancel', id, state.revision)] : []),
-  ], ...verificationLimitsButton(state,id)]);
+  ], ...(state.draft?.pendingRequirements.length && mappingProposal(state)
+    ? [[button('Review supported mappings', 'mapview', id, state.revision)]] : []),
+  ...verificationLimitsButton(state,id)]);
 }
 
 export function createAgentSetup(store) {
