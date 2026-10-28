@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "kind": "public-read-only-risk-observation",
+  "completedAt": "2026-10-23T15:15:00.686Z",
+  "address": "7GUnr7krtQhJwd6ASY2VUprd9t4c64zcgCsjdmZepump",
+  "marketFetchedAt": 1792768496892,
+  "pool": "BRjMA8UALNp3diTKHfdeAn5riQrYPoaYez7KhYWD4oEs",
+  "evidence": {
+    "address": "7GUnr7krtQhJwd6ASY2VUprd9t4c64zcgCsjdmZepump",
+    "pool": "BRjMA8UALNp3diTKHfdeAn5riQrYPoaYez7KhYWD4oEs",
+    "checkedAt": 1792768500686,
+    "liquidityProtection": {
+      "state": "unknown",
+      "reason": "This pool uses an unsupported mode or virtual-reserve configuration.",
+      "links": [],
+      "observedAt": null
+    },
+    "developerHolding": {
+      "state": "unknown",
+      "reason": "No supported signed creation was verified. Recent mint history may omit creation or be unavailable.",
+      "links": []
+    },
+    "buyingCoordination": {
+      "state": "unknown",
+      "reason": "Bundle membership and full buying history are unavailable; absence of observed coordination is not a passed check.",
+      "links": [],
+      "confirmed": false,
+      "suspicions": []
+    },
+    "events": [],
+    "warnings": [
+      "Developer sales/transfer history is incomplete; no claim of “never sold”."
+    ],
+    "coverage": [
+      {
+        "role": "Mint",
+        "state": "interrupted",
+        "returned": 20,
+        "read": 4,
+        "failed": 0,
+        "missing": 1,
+        "omitted": 15,
+        "reason": "Solana RPC returned an unusable or mismatched response."
+      },
+      {
+        "role": "Pool",
+        "state": "interrupted",
+        "returned": 20,
+        "read": 3,
+        "failed": 0,
+        "missing": 1,
+        "omitted": 16,
+        "reason": "Solana RPC returned an unusable or mismatched response."
+      }
+    ],
+    "history": "Sample only: up to 20 recent signatures per address, 40 creator/wallet/pool transaction reads plus 20 LP burn reads. Older history and other wallets/venues are not covered.",
+    "liquiditySlot": 460490190
+  },
+  "telegramDeliveryVerified": false,
+  "approvedStrategyMatchVerified": false,
+  "note": "This is an observed response, not an independent audit of every transaction, complete pool inventory, or proof of token safety."
+}

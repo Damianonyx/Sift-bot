@@ -130,6 +130,12 @@ test('a complete synthetic start-to-pinned-pool alert includes evidence, fires a
   assert.ok(sends[0].text.includes(CA) && sends[0].text.includes(POOL));
   assert.match(sends[0].text, /https:\/\/api.dexscreener.com/);
   assert.equal(sends[0].link_preview_options.is_disabled, true);
+  assert.equal(sends[0].reply_markup.inline_keyboard[0][0].copy_text.text, CA);
+  assert.deepEqual(sends[0].entities.map((e) => sends[0].text.slice(e.offset, e.offset + e.length)), [CA]);
+  const respond = createResponder({ agents: s, market: { check: noRequest }, now: () => time });
+  const saved = await respond(callback(`watch:42:event:${s.watchHistory(42)[0].id}:0`), allowed);
+  assert.equal(saved.reply_markup.inline_keyboard[0][0].copy_text.text, CA);
+  assert.deepEqual(saved.entities.map((e) => saved.text.slice(e.offset, e.offset + e.length)), [CA]);
   usd = 0; time += 60000; await runner.cycle();
   assert.equal(sends.length, 1);
   assert.equal(s.watchHistory(42)[0].state, 'sent');
@@ -225,6 +231,18 @@ test('rate limits suppress later reports visibly, 403 pauses only that tester, f
     if(code===429) {assert.equal(calls,1);assert.equal(s.watchHistory(57)[0].state,'suppressed');}
     else {assert.equal(s.watchGet(42,1).state,'paused');assert.equal(s.watchGet(57,2).state,'active');}
   }
+});
+
+test('identical pool monitors share failed requests for a cycle without hiding per-user outages',async t=>{
+  const s=storeFor(t);start(s,42);start(s,57);
+  let requests=0;const sends=[];
+  const runner=createWatchRunner({agents:s,allowedUserIds:allowed,now:()=>NOW+60000,
+    market:{check:async()=>{requests++;throw new MarketDataError('SOURCE_UNAVAILABLE');}},call:async(_,body)=>sends.push(body.chat_id)});
+  await runner.cycle();
+  assert.equal(requests,1);assert.deepEqual(sends,[42,57]);
+  assert.equal(s.watchGet(42,1).issue,'SOURCE_UNAVAILABLE');
+  assert.equal(s.watchGet(57,2).issue,'SOURCE_UNAVAILABLE');
+  await runner.cycle();assert.equal(requests,2);assert.equal(sends.length,2);
 });
 
 test('state, fixed baseline, uncertain reports and deduplication survive reopening the same database', async (t) => {

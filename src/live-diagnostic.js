@@ -2,6 +2,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { BOT_USERNAME, readConfig } from './bot.js';
 import { isSolanaAddress } from './market.js';
 import { TelegramError } from './telegram.js';
+import { withCopyableCAs } from './telegram-format.js';
 
 export function readDiagnosticTarget(env, requestedId) {
   if (requestedId === undefined) return null;
@@ -94,8 +95,8 @@ export async function runLiveDiagnostic({ pump, gecko, market, telegram = null, 
           ...report.market.map((row) => `CA: ${row.address}\nMarket response: ${row.state}${row.fetchedAt ? `\nFetched: ${row.fetchedAt}; provider update time unknown.` : ''}`),
           'Your saved rules, scan state and group destinations are unchanged.'].join('\n\n');
         attempted = true;
-        const result = await telegram.call('sendMessage', { chat_id: telegram.userId, text,
-          link_preview_options: { is_disabled: true } }, signal);
+        const result = await telegram.call('sendMessage', withCopyableCAs({ chat_id: telegram.userId, text,
+          link_preview_options: { is_disabled: true } }, report.market.map((row) => row.address)), signal);
         report.telegram = { state: Number.isSafeInteger(result?.message_id) && result.message_id > 0 &&
           result.chat?.id === telegram.userId && result.chat?.type === 'private' ? 'accepted_by_telegram' : 'uncertain' };
       }

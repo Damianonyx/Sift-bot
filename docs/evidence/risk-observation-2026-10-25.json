@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "kind": "public-read-only-risk-observation",
+  "completedAt": "2026-10-25T14:47:41.249Z",
+  "address": "7GUnr7krtQhJwd6ASY2VUprd9t4c64zcgCsjdmZepump",
+  "marketFetchedAt": 1792939617658,
+  "pool": "BRjMA8UALNp3diTKHfdeAn5riQrYPoaYez7KhYWD4oEs",
+  "evidence": {
+    "address": "7GUnr7krtQhJwd6ASY2VUprd9t4c64zcgCsjdmZepump",
+    "pool": "BRjMA8UALNp3diTKHfdeAn5riQrYPoaYez7KhYWD4oEs",
+    "checkedAt": 1792939661249,
+    "liquidityProtection": {
+      "state": "unknown",
+      "reason": "This PumpSwap pool has nonzero virtual quote reserves; this reader cannot verify its LP protection. This does not establish that liquidity is unlocked.",
+      "links": [],
+      "observedAt": null
+    },
+    "developerHolding": {
+      "state": "unknown",
+      "reason": "No supported signed creation was verified. Recent mint history may omit creation or be unavailable.",
+      "links": []
+    },
+    "buyingCoordination": {
+      "state": "unknown",
+      "reason": "Bundle membership and full buying history are unavailable; absence of observed coordination is not a passed check.",
+      "links": [],
+      "confirmed": false,
+      "suspicions": []
+    },
+    "events": [],
+    "warnings": [
+      "Developer sales/transfer history is incomplete; no claim of “never sold”."
+    ],
+    "coverage": [
+      {
+        "role": "Mint",
+        "state": "sampled",
+        "returned": 60,
+        "read": 20,
+        "failed": 5,
+        "missing": 0,
+        "omitted": 35,
+        "pages": 3,
+        "enumerationEndObserved": false,
+        "pageLimitReached": true,
+        "reason": "Transaction budget reserved for other checks or exhausted."
+      },
+      {
+        "role": "Pool",
+        "state": "sampled",
+        "returned": 20,
+        "read": 19,
+        "failed": 1,
+        "missing": 0,
+        "omitted": 0
+      }
+    ],
+    "history": "Sample only: up to three mint signature pages (60 rows), one creator/pool page each (20 rows), and 40 transaction reads plus 20 LP burn reads. Older/unreturned history and other wallets/venues remain unverified.",
+    "liquiditySlot": 461296491
+  },
+  "telegramDeliveryVerified": false,
+  "approvedStrategyMatchVerified": false,
+  "note": "This is an observed response, not an independent audit of every transaction, complete pool inventory, or proof of token safety."
+}

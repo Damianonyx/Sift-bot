@@ -10,10 +10,13 @@ import { criteriaKey } from '../src/discovery-store.js';
 import { TelegramError } from '../src/telegram.js';
 import { normalisePairs } from '../src/market.js';
 import { TEST_RISK_RULES } from '../src/risk.js';
-import { CA, NOW, snapshot } from './fixtures/risk.js';
+import { CA, NOW, snapshot, address } from './fixtures/risk.js';
+import { sixMonthsAfter } from '../src/evidence-utils.js';
 let sequence=80000;
 const approved={name:'Group scout',rules:[{field:'marketCap',mode:'require',min:20000,max:60000}],pendingRequirements:[]};
 const key=criteriaKey(approved), chat=-100123, botId=12345;
+const marketSnapshot=(token=CA)=>normalisePairs([{chainId:'solana',pairAddress:snapshot().selected.address,
+  baseToken:{address:token},marketCap:40000,liquidity:{usd:40000}}],token,NOW);
 const message=(text,owner=42,group=chat)=>({update_id:++sequence,message:{text,from:{id:owner,is_bot:false},chat:{id:group,type:group<0?'supergroup':'private'}}});
 const callback=(data,owner=42)=>({update_id:++sequence,callback_query:{id:'cb'+sequence,data,from:{id:owner,is_bot:false},message:{chat:{id:owner,type:'private'}}}});
 const action=(r,label)=>r.reply_markup.inline_keyboard.flat().find(b=>b.text.startsWith(label)).callback_data;
@@ -56,6 +59,38 @@ test('adding a group does nothing; admin connects then explicitly approves priva
   assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,0);
 });
 
+test('a separately approved group strategy scans independently and keeps private edits out of group evidence',async t=>{
+  const s=setup(t);await enable(s);
+  const proposed=await s.groups.respond(message('/groupstrategy '+chat,42,42));
+  assert.equal(s.agents.groupGet(chat).state,'review');
+  await s.groups.respond(callback(action(proposed,'Enable')));
+  s.agents.discoverySet(42,'stopped',key);
+  s.agents.put(42,{revision:2,draft:null,approved:{name:'PRIVATE NEW NAME',rules:[{field:'marketCap',mode:'require',min:1,max:2}],pendingRequirements:[]}});
+  assert.equal(s.agents.groupGet(chat).state,'active');assert.equal(s.groups.targets().length,1);
+  const runner=createDiscoveryRunner({agents:s.agents,groups:s.groups,allowedUserIds:s.allowedUserIds,call:s.call,now:()=>NOW,
+    market:{check:async()=>normalisePairs([{chainId:'solana',pairAddress:snapshot().selected.address,baseToken:{address:CA},marketCap:40000,liquidity:{usd:40000}}],CA,NOW)},
+    feed:{read:async()=>({candidates:[{address:CA}],sourceUrl:'https://example.invalid',fetchedAt:NOW})}});
+  await runner.cycle();await runner.cycle();
+  const sends=s.calls.filter(c=>c.method==='sendMessage');assert.equal(sends.length,1);assert.equal(sends[0].body.chat_id,chat);assert.doesNotMatch(sends[0].body.text,/PRIVATE NEW NAME/);
+  const ledger=s.agents.signalList(42);assert.equal(ledger.length,1);assert.equal(ledger[0].target,chat);assert.equal(ledger[0].delivery,'sent');
+  assert.equal(s.agents.groupSettings(chat).matched,1);
+  const publicCallback={update_id:++sequence,callback_query:{id:'public',data:`groupdata:${chat}:1:0`,from:{id:99,is_bot:false},message:{chat:{id:chat,type:'supergroup'}}}};
+  const evidence=await s.groups.respond(publicCallback);assert.ok(evidence.text);assert.doesNotMatch(evidence.text,/PRIVATE NEW NAME/);
+  publicCallback.callback_query.message.chat.id=-999;assert.match((await s.groups.respond(publicCallback)).callbackNotice,/original group/);
+});
+
+test('group cadence survives cycles, changes require review, and pause revokes posting',async t=>{
+  const s=setup(t);await enable(s);
+  const proposed=await s.groups.respond(message('/groupconfig '+chat+' 10 1',42,42));
+  assert.equal(s.agents.groupGet(chat).state,'review');await s.groups.respond(callback(action(proposed,'Enable')));
+  await s.groups.deliver(42,key,'token-a','evidence');s.groups.beginCycle();
+  await s.groups.deliver(42,key,'token-b','evidence');assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,1);
+  s.setTime(NOW+600001);await s.groups.deliver(42,key,'token-b','evidence');assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,2);
+  await s.groups.respond(message('/grouppause '+chat,42,42));s.groups.beginCycle();s.setTime(NOW+1200002);
+  await s.groups.deliver(42,key,'token-c','evidence');assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,2);
+  assert.ok(s.agents.auditList(42).some(a=>a.action==='group_configuration'));
+});
+
 test('group access rejects strangers, anonymous admins, foreign bots and wrong-owner buttons',async t=>{
   const s=setup(t);
   assert.equal(await s.groups.respond(message('/group connect',99)),null);
@@ -89,7 +124,9 @@ test('future discovery matches are shared once with evidence and without private
   await runner.cycle();await runner.cycle();
   const sends=s.calls.filter(c=>c.method==='sendMessage');assert.equal(sends.length,2);
   const group=sends.find(c=>c.body.chat_id===chat);assert.ok(group.body.text.includes(CA));assert.match(group.body.text,/Risk checks were not requested/);
-  assert.equal(group.body.reply_markup,undefined);assert.ok(group.body.text.length<=4096);
+  assert.deepEqual(group.body.reply_markup.inline_keyboard,[[{text:'View evidence',callback_data:`groupdata:${chat}:1:0`}],[{text:'Copy CA',copy_text:{text:CA}}]]);
+  assert.deepEqual(group.body.entities.map(e=>group.body.text.slice(e.offset,e.offset+e.length)),[CA]);
+  assert.ok(group.body.text.length<=4096);
 });
 
 test('removing admin access, pausing scans and stopping during authorization prevent group sends',async t=>{
@@ -147,4 +184,78 @@ test('shutdown during admin verification does not persistently pause the destina
   s.setBefore(()=>controller.abort());
   await s.groups.deliver(42,key,CA,'evidence',{signal:controller.signal});
   assert.equal(s.agents.groupGet(chat).state,'active');assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,0);
+});
+
+test('fresh inherited group matches have independent deduplication and delivery budgets',async t=>{
+  const s=setup(t);await enable(s);
+  const prior=s.agents.discoveryReserve(42,key,CA,NOW-60000,{text:'Earlier private report; never copied to the group.'});
+  s.agents.discoveryDelivery(42,prior,'sent');
+  const candidates=[CA,...[21,22,23,24].map(address)];
+  // The group already received these in an earlier cycle, but the private
+  // destination has not. Private capacity must not starve the final new group CA.
+  for(const token of candidates.slice(1,4)) {
+    const id=s.agents.groupReserve(chat,42,key,token,NOW-60000);
+    s.agents.groupDelivery(id,'sent');
+  }
+  const runner=createDiscoveryRunner({agents:s.agents,groups:s.groups,allowedUserIds:s.allowedUserIds,call:s.call,now:()=>NOW,
+    market:{check:async token=>marketSnapshot(token)},
+    feed:{read:async()=>({candidates:candidates.map(token=>({address:token})),sourceUrl:'https://example.invalid',fetchedAt:NOW})}});
+  await runner.cycle();
+  const authorizations=s.calls.filter(c=>c.method==='getChatMember').length;
+  await runner.cycle();
+  assert.equal(s.calls.filter(c=>c.method==='getChatMember').length,authorizations);
+  const sent=s.calls.filter(c=>c.method==='sendMessage');
+  const group=sent.filter(c=>c.body.chat_id===chat);
+  assert.equal(group.length,2);
+  assert.ok(group[0].body.text.includes(CA));
+  assert.ok(group[1].body.text.includes(candidates[4]));
+  assert.doesNotMatch(group[0].body.text,/Earlier private report/);
+  assert.equal(sent.filter(c=>c.body.chat_id===42).length,4);
+});
+
+test('private mutes still suppress inherited groups and private 403 does not revive a paused scan',async t=>{
+  for(const mode of ['mute','forbidden']) {
+    const s=setup(t);await enable(s);
+    if(mode==='mute')s.agents.discoveryMute(42,CA);
+    const sends=[];
+    const call=async(method,body)=>{
+      if(method==='sendMessage'){sends.push(body);if(body.chat_id===42)throw new TelegramError(403);}
+      return s.call(method,body);
+    };
+    const runner=createDiscoveryRunner({agents:s.agents,groups:s.groups,allowedUserIds:s.allowedUserIds,call,now:()=>NOW,
+      market:{check:async()=>marketSnapshot()},feed:{read:async()=>({candidates:[{address:CA}],fetchedAt:NOW})}});
+    await runner.cycle();
+    assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,0);
+    assert.equal(sends.length,mode==='mute'?0:1);
+    if(mode==='forbidden')assert.equal(s.agents.discoveryGet(42).state,'paused');
+  }
+});
+
+test('group authorization waits cannot deliver stale evidence or override a newly set mute',async t=>{
+  for(const mutation of ['stale','mute','quiet']) {
+    const s=setup(t);await enable(s);
+    s.setBefore(()=>{
+      if(mutation==='stale')s.setTime(NOW+120001);
+      else if(mutation==='mute')s.agents.discoveryMute(42,CA);
+      else s.agents.preferencesPut(42,{...s.agents.preferences(42),quietStart:0,quietEnd:23},NOW);
+    });
+    await s.groups.deliver(42,key,CA,'Freshly evaluated match',{snapshot:snapshot(),strategy:approved,pages:['evidence']});
+    assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,0);
+    assert.equal(s.agents.groupIssues(chat),0);
+    assert.equal(s.agents.groupGet(chat).state,'active');
+  }
+});
+
+test('required lock duration is re-evaluated after group admin verification',async t=>{
+  const s=setup(t);
+  const strategy={...approved,rules:[...approved.rules,{field:'liquidityProtection',mode:'require',policy:'evidence-v2',scope:'selected'}]};
+  s.agents.put(42,{revision:2,draft:null,approved:strategy});
+  const ruleKey=criteriaKey(strategy);s.agents.discoverySet(42,'active',ruleKey);
+  await enable(s);
+  const value=snapshot();value.risk={address:CA,pool:value.selected.address,checkedAt:NOW,
+    liquidityProtection:{state:'pass',protectedPercent:100,kind:'lock',observedAt:NOW,unlockAt:sixMonthsAfter(NOW),links:['https://solscan.io/account/'+CA]}};
+  s.setBefore(()=>s.setTime(NOW+1));
+  await s.groups.deliver(42,ruleKey,CA,'At-boundary lock match',{snapshot:value,strategy,pages:['evidence']});
+  assert.equal(s.calls.filter(c=>c.method==='sendMessage').length,0);
+  assert.equal(s.agents.signalList(42).length,0);
 });

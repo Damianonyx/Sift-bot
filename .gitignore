@@ -6,3 +6,10 @@ coverage/
 *.log
 .DS_Store
 .sift/
+
+source-audit-results.json
+
+# Runtime databases and private maintenance snapshots, including custom data directories.
+*.sqlite
+*.sqlite-*
+.sift-backup-*/

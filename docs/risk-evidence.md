@@ -2,7 +2,8 @@
 
 Implementation is offline tested. No live burn, lock, creator holding, sale,
 coordinated-buy or Jito bundle has been independently validated by this change.
-The development workspace's proxy is unreachable and has no Telegram token.
+Bounded public-source checks are recorded in the [milestone ledger](telegram-build-milestones.md).
+This workspace has no Telegram token; those diagnostics send no messages.
 
 ## Required policy
 
@@ -28,6 +29,13 @@ revision-bound button explicitly replaces those extras in a **draft**. The marke
 rules and name are retained. Review and approval are separate, as is `/scan`
 activation. Existing drafts and approved settings are never auto-migrated.
 
+The **Verification limits** button in `/agent` and `/scan` explains unmapped
+instructions, supported evidence and incomplete coverage without changing rules,
+approval or scanning. It is private, owner-only and revision-bound. A request
+for 100% protection across **all pools** is broader than this selected-pool
+policy. `/riskrules` is an explicit replacement, not a lossless interpretation
+of that request. Keep the original draft when the scopes differ.
+
 The general bundle requirement currently remains unknown, so **the complete
 policy cannot produce a qualifying discovery alert**. Even a bare adapter result
 claiming `pass` for bundle coverage is rejected by the evaluator. Adding a future
@@ -40,7 +48,14 @@ changing a boolean or weakening the rule is insufficient.
 DEX Screener pool as `/check`. On-chain program identity, account linkage,
 permissions and supply checks retain the restrictions documented in
 [liquidity account evidence](liquidity-evidence.md) and
-[PumpSwap account evidence](pumpswap-evidence.md).
+[PumpSwap account evidence](pumpswap-evidence.md) and
+[the bounded CPMM reader](telegram-build-milestones.md#liquidity-coverage).
+
+PumpSwap signed virtual reserves are reconciled with pending protocol/creator
+fees. When the boost component is zero, the supported LP proof can be attempted;
+pending fees are excluded from quote liquidity. Boosted pools expose validated
+account facts but cannot pass protection, including when LP supply is zero.
+The final lock-custody reread checks mode eligibility again.
 
 For a burn, inspect at most 20 recent LP-mint signatures. Require a successful
 SPL Token/Token-2022 `burn` or `burnChecked` instruction for this LP mint with a
@@ -73,32 +88,61 @@ not attest deployed bytecode, remove upgrade authority or establish token safety
 
 `/risk <CA>` combines supported liquidity evidence with:
 
-- Attribution from a successful **classic Pump `create` instruction** whose
+- Attribution from a successful **Pump `create` or supported `create_v2` instruction** whose
   creator argument equals the signing `user`, with the token mint also signing.
   Fee recipients, mutable `coin_creator` fields, pool creators, metadata URLs
-  and token-name suffixes are not accepted as developer attribution. Create-v2,
-  other launch programs and delegated creation remain unknown.
+  and token-name suffixes are not accepted as developer attribution. Account
+  layouts and program addresses must match the pinned Pump IDL. For `create_v2`,
+  the supported argument tail after the creator is `bool`, `OptionBool(bool)`,
+  `OptionU64(u64)`, `OptionBool(bool)`: exactly 11 bytes, with valid booleans.
+  These wrappers are structs, not Borsh option tags. Other tails, launch programs
+  and delegated creation remain unknown. Creation flags are not risk verdicts.
+- During discovery, a same-mint PumpPortal **creation** signature received within
+  the 20-minute queue window can locate that transaction directly. It must still
+  resolve through finalized RPC to a successful, matching, signed creation.
+  Feed creator labels and migration signatures never establish attribution.
+  Unverified locators fall back to sampled mint history; manual checks use that
+  history when no candidate locator is supplied.
 - Finalized `getTokenAccountsByOwner` balances for that creator and exact mint,
   including all accounts in the bounded response. Empty complete responses mean
   zero; malformed, missing, stale or failed responses mean unknown.
 - Direct top-level PumpSwap buys/sells with matching program/instruction, mint,
   signing user, vault ownership and base/quote transfers within the same invocation.
-  Unsupported routed/nested swaps are not labelled verified sales. Other observed
+  Bonding-curve sales and unsupported routed/nested swaps are not labelled verified sales. Other observed
   outgoing token transfers are separate events. Amounts are raw token units.
 - Two distinct signing buyers executing verified buys within one atomic
   transaction count as confirmed coordinated buying. This is an execution fact,
   not an assertion of malicious intent or proof of Jito membership. Distinct
   buyers in separate transactions in the same slot are only a suspicion.
 
-History is a **sample**, not an exhaustive history: at most 20 recent signatures
-for each inspected mint, creator and pool, with 40 wallet/pool transaction reads
-in total. LP burn verification separately permits 20 reads. Transactions are
-shared only within that one risk check. Creation beyond the bounded sample,
+History is a **sample**, not an exhaustive history: up to three cursor pages
+(60 signatures) for the mint and one page (20 signatures) each for creator and
+pool, with 40 creation/wallet/pool transaction reads in total, including a direct
+launch lookup. When mint pagination advances, the oldest returned signatures
+are tried first within the same 20-body mint budget. Page limits, interrupted
+pagination and a returned end of enumeration are reported; an end can reflect
+pruned RPC history and does not establish completeness. Mint history leaves 20 reads
+available; creator history leaves 10 available for pool activity. With a verified
+direct creation lookup, recent mint enumeration is unnecessary. LP burn
+verification separately permits 20 reads. Transactions, including failed lookups,
+are shared only within that one risk check. Each report shows signatures returned,
+verified transaction bodies, failed transactions excluded, missing/invalid bodies,
+and omissions due to budget or interruption. A source error retains already
+verified evidence but marks the sample interrupted or unavailable. Even a fully
+read 20-signature page is not complete history. Creation beyond the bounded sample,
 missing transaction bodies and RPC history pruning leave attribution unknown.
 No sample with no sales becomes “never sold”; no sample with no suspicious buys
 becomes “bundle-free”. Other wallets, closed token accounts and venues are not
 fully covered. This is manual/discovery evidence, not a developer-wallet event
 subscription; `/watch` continues to monitor market data only.
+
+Reports preserve fixed, readable failure reasons: RPC rate limits, request
+timeouts, unusable responses, network failures, missing transaction bodies and
+budget omissions. Liquidity account-read and validation failures retain their
+specific reason instead of being labelled an unsupported pool. Arbitrary provider
+errors are never echoed. A report from before this diagnostic fix cannot identify
+the cause of an interruption retrospectively. Better diagnostics do not increase
+history coverage, establish creator identity or provide complete bundle evidence.
 
 ## Supplied Jito bundle IDs
 
@@ -129,6 +173,9 @@ manual check does not persist a new rule or silently change a running scan.
   risk deadline, 8-second individual RPC timeout, 256 KiB RPC response limit.
   Liquidity has a separate 30-second cooldown. Stream discovery is capped at
   20 metadata accounts; contextual reads at 44 accounts; holdings at 100 accounts.
+- Transaction reads are spaced by at least 1.1 seconds per RPC client. HTTP and
+  JSON-RPC throttling both activate shared backoff. The deadline can therefore
+  interrupt a large sample; it is a ceiling, not a promise to read every row.
 - Jito checks have their own 60-second cooldown, 20-second total deadline, 32 KiB
   response limit, at most five transaction reads and HTTP 429 backoff.
 - Chain time must be within two minutes, with at most 30 seconds future skew.
@@ -147,7 +194,7 @@ manual check does not persist a new rule or silently change a running scan.
 - [Streamflow Rust metadata and custody layout](https://github.com/streamflow-finance/rust-sdk/blob/63df7d7b831340daa27f31d007eec2a98380364c/programs/streamflow-sdk/src/state.rs)
 - [Streamflow JS layout](https://github.com/streamflow-finance/js-sdk/blob/fb236fff325ab02d7ff5d0ff5e393be8934cda9d/packages/stream/solana/layout.ts)
 - [Streamflow transfer authority usage](https://github.com/streamflow-finance/js-sdk/blob/fb236fff325ab02d7ff5d0ff5e393be8934cda9d/packages/stream/solana/StreamClient.ts)
-- [Pump creation IDL](https://github.com/pump-fun/pump-public-docs/blob/2293f9a66c654e9fe82dc5e8f4618538f24bb35f/idl/pump.json)
+- [Pump creation IDL](https://github.com/pump-fun/pump-public-docs/blob/639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22/idl/pump.json)
 - [PumpSwap instruction IDL](https://github.com/pump-fun/pump-public-docs/blob/2293f9a66c654e9fe82dc5e8f4618538f24bb35f/idl/pump_amm.json)
 - [Jito bundle status contract](https://docs.jito.wtf/lowlatencytxnsend/#getbundlestatuses)
 

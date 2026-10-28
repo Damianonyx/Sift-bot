@@ -4,12 +4,19 @@
   "private": true,
   "type": "module",
   "description": "Sift's private Telegram bot with discovery, saved criteria and fixed-pool market monitoring.",
-  "engines": { "node": ">=24 <25" },
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
+    "start:web": "SIFT_WEB_ENABLED=true SIFT_WEB_ROOT=../SiftAgent/dist/app SIFT_WEB_HOST=127.0.0.1 SIFT_WEB_PORT=3000 SIFT_WEB_ORIGIN=\"https://${CODESPACE_NAME:?Run start:web inside your Codespace}-3000.${GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN:-app.github.dev}\" node --env-file-if-exists=.env src/index.js",
     "test": "node --test --test-isolation=none test/*.test.js",
     "preflight": "node --env-file-if-exists=.env scripts/preflight.js",
-    "check:live": "node --use-env-proxy --env-file-if-exists=.env scripts/live-check.js"
+    "check:live": "node --use-env-proxy --env-file-if-exists=.env scripts/live-check.js",
+    "check:sources": "node --use-env-proxy scripts/source-audit.js",
+    "check:feeds": "node --use-env-proxy --env-file-if-exists=.env scripts/feed-observation.js",
+    "check:risk": "node --use-env-proxy scripts/risk-observation.js",
+    "storage": "node scripts/storage.js",
+    "replay:calls": "node scripts/replay-calls.js"
   }
 }
-

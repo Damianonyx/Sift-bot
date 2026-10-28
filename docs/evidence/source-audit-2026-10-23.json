@@ -1,0 +1,199 @@
+{
+  "startedAt": "2026-10-23T15:09:35.748Z",
+  "purpose": "Sample provider identities and discrepancies; not accuracy certification",
+  "feeds": [
+    {
+      "source": "meteora-dlmm",
+      "state": "responded",
+      "checkedAt": 1792768177269,
+      "candidateCount": 23,
+      "invalidPools": 0
+    },
+    {
+      "source": "meteora-damm-v2",
+      "state": "responded",
+      "checkedAt": 1792768177049,
+      "candidateCount": 22,
+      "invalidPools": 0
+    }
+  ],
+  "samples": [
+    {
+      "selection": "meteora-dlmm: highest API TVL pool",
+      "source": "meteora-dlmm",
+      "directPool": {
+        "address": "DQ9weJhfiU4iL5LUoeshDrm5KxDHCMiSbnnKJz7buMcf",
+        "tokens": [
+          "DrZ26cKJDksVRWib3DVVsjo9eeXccc7hKhDJviiYEEZY",
+          "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+        ],
+        "source": "meteora-dlmm",
+        "fetchedAt": 1792768177647,
+        "sourceUrl": "https://dlmm.datapi.meteora.ag/pools/DQ9weJhfiU4iL5LUoeshDrm5KxDHCMiSbnnKJz7buMcf",
+        "tvl": 37606819.03627382,
+        "volume1h": 0,
+        "providerUpdatedAt": null
+      },
+      "audit": {
+        "address": "DrZ26cKJDksVRWib3DVVsjo9eeXccc7hKhDJviiYEEZY",
+        "poolAddress": "DQ9weJhfiU4iL5LUoeshDrm5KxDHCMiSbnnKJz7buMcf",
+        "dex": "meteora",
+        "state": "observed",
+        "fetchedAt": 1792768178508,
+        "dexFetchedAt": 1792768177914,
+        "dexSourceUrl": "https://api.dexscreener.com/token-pairs/v1/solana/DrZ26cKJDksVRWib3DVVsjo9eeXccc7hKhDJviiYEEZY",
+        "gecko": {
+          "state": "responded",
+          "source": "geckoterminal",
+          "fetchedAt": 1792768178508,
+          "sourceUrl": "https://api.geckoterminal.com/api/v2/networks/solana/pools/DQ9weJhfiU4iL5LUoeshDrm5KxDHCMiSbnnKJz7buMcf?include=base_token,quote_token",
+          "reversed": false,
+          "providerUpdatedAt": null,
+          "priceUsd": 0.2882384301880862,
+          "marketCap": 86172787.4631523,
+          "liquidityUsd": 37289273.4927,
+          "volume1h": 0
+        },
+        "meteora": [
+          {
+            "state": "responded",
+            "address": "DQ9weJhfiU4iL5LUoeshDrm5KxDHCMiSbnnKJz7buMcf",
+            "tokens": [
+              "DrZ26cKJDksVRWib3DVVsjo9eeXccc7hKhDJviiYEEZY",
+              "EPjFWdd5AufqSSqeM2qN1xzybapC8G4wEGGkZwyTDt1v"
+            ],
+            "source": "meteora-dlmm",
+            "fetchedAt": 1792768178438,
+            "sourceUrl": "https://dlmm.datapi.meteora.ag/pools/DQ9weJhfiU4iL5LUoeshDrm5KxDHCMiSbnnKJz7buMcf",
+            "tvl": 37606819.03627382,
+            "volume1h": 0,
+            "providerUpdatedAt": null
+          },
+          {
+            "source": "meteora-damm-v2",
+            "state": "NOT_INDEXED"
+          }
+        ],
+        "comparisons": [
+          {
+            "field": "priceUsd",
+            "label": "Price USD",
+            "dex": 0.2882,
+            "other": 0.2882384301880862,
+            "state": "different",
+            "differencePct": 0.013334555199927644
+          },
+          {
+            "field": "marketCap",
+            "label": "Market cap USD",
+            "dex": 288260238,
+            "other": 86172787.4631523,
+            "state": "different",
+            "differencePct": -70.10590567015619
+          },
+          {
+            "field": "liquidityUsd",
+            "label": "Pool liquidity USD",
+            "dex": 37263064.64,
+            "other": 37289273.4927,
+            "state": "different",
+            "differencePct": 0.07033466772850622
+          },
+          {
+            "field": "volume1h",
+            "label": "Pool 1h volume USD",
+            "dex": 0,
+            "other": 0,
+            "state": "equal",
+            "differencePct": 0
+          }
+        ]
+      }
+    },
+    {
+      "selection": "meteora-damm-v2: highest API TVL pool",
+      "source": "meteora-damm-v2",
+      "directPool": {
+        "address": "F6L1RKAKwNuWwyCwweja6uxAkRv41XFTRWmg8tKGkn83",
+        "tokens": [
+          "WLFinEv6ypjkczcS83FZqFpgFZYwQXutRbxGe7oC16g",
+          "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB"
+        ],
+        "source": "meteora-damm-v2",
+        "fetchedAt": 1792768178859,
+        "sourceUrl": "https://damm-v2.datapi.meteora.ag/pools/F6L1RKAKwNuWwyCwweja6uxAkRv41XFTRWmg8tKGkn83",
+        "tvl": 3215363.1997228847,
+        "volume1h": 0,
+        "providerUpdatedAt": null
+      },
+      "audit": {
+        "address": "USD1ttGY1N17NEEHLmELoaybftRBUSErhqYiQzvEmuB",
+        "state": "not_indexed",
+        "fetchedAt": 1792768185450,
+        "comparisons": []
+      }
+    },
+    {
+      "selection": "Previously checked Pump.fun token",
+      "audit": {
+        "address": "7GUnr7krtQhJwd6ASY2VUprd9t4c64zcgCsjdmZepump",
+        "poolAddress": "BRjMA8UALNp3diTKHfdeAn5riQrYPoaYez7KhYWD4oEs",
+        "dex": "pumpswap",
+        "state": "observed",
+        "fetchedAt": 1792768186233,
+        "dexFetchedAt": 1792768185668,
+        "dexSourceUrl": "https://api.dexscreener.com/token-pairs/v1/solana/7GUnr7krtQhJwd6ASY2VUprd9t4c64zcgCsjdmZepump",
+        "gecko": {
+          "state": "responded",
+          "source": "geckoterminal",
+          "fetchedAt": 1792768186233,
+          "sourceUrl": "https://api.geckoterminal.com/api/v2/networks/solana/pools/BRjMA8UALNp3diTKHfdeAn5riQrYPoaYez7KhYWD4oEs?include=base_token,quote_token",
+          "reversed": false,
+          "providerUpdatedAt": null,
+          "priceUsd": 0.000018611858287287496,
+          "marketCap": 15692.0270566506,
+          "liquidityUsd": 14462.9864,
+          "volume1h": 16.5685783011
+        },
+        "meteora": [],
+        "comparisons": [
+          {
+            "field": "priceUsd",
+            "label": "Price USD",
+            "dex": 0.0000186,
+            "other": 0.000018611858287287496,
+            "state": "different",
+            "differencePct": 0.06375423272846593
+          },
+          {
+            "field": "marketCap",
+            "label": "Market cap USD",
+            "dex": 15689,
+            "other": 15692.0270566506,
+            "state": "different",
+            "differencePct": 0.019294133791832306
+          },
+          {
+            "field": "liquidityUsd",
+            "label": "Pool liquidity USD",
+            "dex": 14449.6,
+            "other": 14462.9864,
+            "state": "different",
+            "differencePct": 0.09264201085150739
+          },
+          {
+            "field": "volume1h",
+            "label": "Pool 1h volume USD",
+            "dex": 16.56,
+            "other": 16.5685783011,
+            "state": "different",
+            "differencePct": 0.051801335144938385
+          }
+        ]
+      }
+    }
+  ],
+  "candidateCount": 42,
+  "completedAt": "2026-10-23T15:09:46.233Z",
+  "complete": false
+}

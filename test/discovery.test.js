@@ -140,12 +140,22 @@ test('a complete synthetic feed-to-market-to-Telegram cycle sends the CA and evi
   assert.equal(sent[0].chat_id, 42);
   assert.match(sent[0].text, /Discovery match/);
   assert.ok(sent[0].text.includes('CA: ' + CA));
+  assert.deepEqual(sent[0].entities.map((e) => sent[0].text.slice(e.offset, e.offset + e.length)), [CA]);
+  assert.equal(sent[0].reply_markup.inline_keyboard.flat().find((b) => b.text === 'Copy CA').copy_text.text, CA);
+  assert.ok(sent[0].reply_markup.inline_keyboard.flat().find((b) => b.text === 'Monitor').callback_data);
   assert.ok(sent[0].text.includes('https://dexscreener.com/solana/' + address(20)));
   assert.match(sent[0].text, /PASS · Required · Market cap/);
   assert.match(sent[0].text, /Provider update time: unknown/);
   assert.doesNotMatch(sent[0].text, /Manual market snapshot|Automatic discovery is not running|No strategy has been applied/);
   assert.equal(store.discoveryHistory(42)[0].state, 'sent');
   assert.equal(store.discoveryHistory(57).length, 0);
+  const respond = createResponder({ agents: store, feed, market });
+  const history = await respond(input('/alerts'), allowed);
+  assert.equal(history.reply_markup.inline_keyboard.flat().find((b) => b.copy_text).copy_text.text, CA);
+  const view = history.reply_markup.inline_keyboard.flat().find((b) => b.text.startsWith('View report'));
+  const saved = await respond(callback(view.callback_data), allowed);
+  assert.equal(saved.reply_markup.inline_keyboard.flat().find((b) => b.copy_text).copy_text.text, CA);
+  assert.deepEqual(saved.entities.map((e) => saved.text.slice(e.offset, e.offset + e.length)), [CA]);
   // Use a non-throttled market stub for the next cycle; identity dedup survives a fresh snapshot.
   await createDiscoveryRunner({ feed: feedStub(), market: { check: async () => normalisePairs([pair()], CA, NOW) },
     agents: store, allowedUserIds: allowed, call: noRequest, now: () => NOW }).cycle();
@@ -175,6 +185,25 @@ test('pausing or replacing approved rules during a market request prevents the s
     assert.equal(store.discoveryGet(42).state, 'paused');
   }
   assert.equal(store.discoveryHistory(42).length, 0);
+});
+
+test('late, future and wrong-token market snapshots cannot produce discovery matches',async t=>{
+  for(const returned of [normalisePairs([pair()],CA,NOW-120001),normalisePairs([pair()],CA,NOW+1),normalisePairs([pair(address(2))],address(2),NOW)]) {
+    const store=storeFor(t);activate(store);
+    await createDiscoveryRunner({agents:store,allowedUserIds:allowed,now:()=>NOW,feed:feedStub(),market:{check:async()=>returned},call:noRequest}).cycle();
+    assert.equal(store.discoveryGet(42).issue,'MARKET_UNAVAILABLE');
+    assert.equal(store.discoveryHistory(42).length,0);
+  }
+});
+
+test('a delayed first recipient cannot cause a second user to receive an expired snapshot',async t=>{
+  const store=storeFor(t);activate(store,42);activate(store,57);
+  let clock=NOW;const sends=[];
+  await createDiscoveryRunner({agents:store,allowedUserIds:allowed,now:()=>clock,feed:feedStub(),market:{check:async()=>normalisePairs([pair()],CA,NOW)},
+    call:async(_,body)=>{sends.push(body.chat_id);clock=NOW+120001;}}).cycle();
+  assert.deepEqual(sends,[42]);
+  assert.equal(store.discoveryGet(57).issue,'MARKET_UNAVAILABLE');
+  assert.equal(store.discoveryGet(57).matched,0);
 });
 
 test('candidate and alert limits are bounded, suppression is visible and muted tokens stay silent', async (t) => {

@@ -48,8 +48,10 @@ export function normalisePairs(raw, address, fetchedAt, poolAddress = null) {
       address: pair.pairAddress,
       name: label(pair.baseToken.name), symbol: label(pair.baseToken.symbol),
       quoteSymbol: label(pair.quoteToken?.symbol), dex: label(pair.dexId),
+      quoteAddress: isSolanaAddress(pair.quoteToken?.address) ? pair.quoteToken.address : null,
       priceUsd: price(pair.priceUsd), marketCap: metric(pair.marketCap), fdv: metric(pair.fdv),
       liquidityUsd: metric(pair.liquidity?.usd), createdAt,
+      activeBoosts: count(pair.boosts?.active),
       windows: ['m5', 'h1', 'h24'].map((window) => ({
         window, volume: metric(pair.volume?.[window]),
         buys: count(pair.txns?.[window]?.buys), sells: count(pair.txns?.[window]?.sells),
@@ -62,6 +64,7 @@ export function normalisePairs(raw, address, fetchedAt, poolAddress = null) {
     address, fetchedAt, sourceUrl: sourceUrl(address), poolCount: pairs.length,
     unknownLiquidityCount: pairs.filter((pair) => pair.liquidityUsd === null).length,
     selected: poolAddress ? pairs.find((pair) => pair.address === poolAddress) ?? null : ranked[0] ?? pairs[0] ?? null,
+    pools: pairs,
     selection: poolAddress ? 'pinned_pool' : ranked.length ? 'reported_liquidity' : 'first_supported',
   };
 }

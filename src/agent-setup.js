@@ -2,6 +2,9 @@ import { commandFor } from './bot.js';
 import { RULE_FIELDS, describeRule, assertApprovable } from './rules.js';
 import { TEST_RISK_RULES, RISK_FIELDS } from './risk.js';
 import { descriptionReview } from './description-commands.js';
+import { verificationLimitsButton, verificationLimitsView } from './risk-capabilities.js';
+import { parseDescription, validDescription } from './description-data.js';
+import { clarifyLiquidityScope } from './policy-description.js';
 
 const QUESTIONS = [
   'Give your agent a name (1–32 characters).',
@@ -45,8 +48,49 @@ function button(text, action, id, revision) {
   return { text, callback_data: `agent:${id}:${action}:${revision}` };
 }
 
+function mappingProposal(state, scope = null) {
+  if (!state.draft || state.draft.step !== QUESTIONS.length || state.draft.interpretation) return null;
+  const originalText = state.draft.pendingRequirements.join('; ');
+  if (!originalText || originalText.length > 800) return null;
+  const interpretedText = scope === null ? originalText : clarifyLiquidityScope(originalText,scope);
+  if (!validDescription(interpretedText)) return null;
+  const parsed = parseDescription(interpretedText);
+  const merged = [...state.draft.rules, ...parsed.rules];
+  const conflict = new Set(merged.map(r => r.field)).size !== merged.length;
+  return {originalText, interpretedText, liquidityScope:scope, parsed, merged, conflict};
+}
+
+function mappingView(state, id, scope = null) {
+  const proposal = mappingProposal(state,scope);
+  if (!proposal) return {chat_id:id,text:'Finish the current draft first. /mapextras needs a completed draft with up to 800 characters of extras. Use /agent.'};
+  const canApply = !proposal.parsed.unresolved.length && !proposal.conflict;
+  const scopes = scope === null && proposal.parsed.unresolved.length && ['selected','all'].every(s => {
+    const option = mappingProposal(state,s);
+    return option && !option.parsed.unresolved.length && !option.conflict;
+  });
+  const text = [
+    'Review mapping of saved extras',
+    `Original:\n${proposal.originalText}`,
+    scope === 'selected' ? 'Scope choice: selected pool only. Other pools may be unprotected. This is a narrower scope than all-pools protection; apply only if this is what you intend.' :
+      scope === 'all' ? 'Scope choice: all pools belonging to the coin. Complete coverage is not established, so this required check remains UNKNOWN.' : '',
+    proposal.parsed.rules.map(describeRule).join('\n'),
+    proposal.conflict ? 'A saved rule conflicts with these extras. Review the conflict in /agent; nothing changed.' :
+      scopes ? 'Choose the scope of your 100% liquidity requirement below. Each choice opens a preview; it does not change your draft.' :
+      proposal.parsed.unresolved.length ? 'Still unresolved. Unsupported or conflicting wording needs clarification. Saved instructions are unchanged.' :
+      'Apply mapping saves these explicit rules in your draft only. Approval and /scan activation stay separate. All-pools and complete bundle coverage remain UNKNOWN; saving a rule cannot make it pass.',
+    'Saved rules and scan state are unchanged by this preview.',
+  ].filter(Boolean).join('\n\n');
+  const rows = canApply ? [[button('Apply mapping to draft',scope==='selected'?'applysel':scope==='all'?'applyall':'mapextras',id,state.revision)]] :
+    scopes ? [[button('Selected pool — preview','mapsel',id,state.revision)], [button('All pools — preview','mapall',id,state.revision)]] : [];
+  if (scope !== null) rows.push([button('Back to scope choices','mapview',id,state.revision)]);
+  return {chat_id:id,text,...(rows.length?{reply_markup:{inline_keyboard:rows}}:{})};
+}
+
 function view(state, id) {
-  if (state.draft?.interpretation) return descriptionReview(state,id);
+  if (state.draft?.interpretation) {
+    const review = descriptionReview(state,id);
+    return { ...review, reply_markup:{ inline_keyboard:[...(review.reply_markup?.inline_keyboard ?? []), ...verificationLimitsButton(state,id)] } };
+  }
   const reply = (text, buttons = []) => ({ chat_id: id, text,
     ...(buttons.length ? { reply_markup: { inline_keyboard: buttons } } : {}) });
   if (state.draft && state.draft.step < QUESTIONS.length) {
@@ -70,6 +114,8 @@ function view(state, id) {
   const text = [
     `${state.draft ? 'Review draft' : 'Approved rules'} · ${agent.name}`,
     agent.sourceDescription ? 'Original description:\n'+agent.sourceDescription : '',
+    agent.mappedExtras ? 'Mapped extras (original instructions retained):\n'+agent.mappedExtras.originalText+
+      (agent.mappedExtras.liquidityScope ? '\nExplicit scope choice: '+(agent.mappedExtras.liquidityScope==='all'?'all pools':'selected pool only')+'.' : '') : '',
     agent.rules.length ? agent.rules.map(describeRule).join('\n') : 'No conditions selected.',
     agent.pendingRequirements.length ? 'Unresolved instructions (not yet interpreted or checked):\n' + agent.pendingRequirements.join('\n\n') : '',
     'Unknown required results fail. Warning-only failures or unknowns remain visible.',
@@ -79,7 +125,9 @@ function view(state, id) {
     ...(state.draft && !approvalError ? [button('Approve rules', 'approve', id, state.revision)] : []),
     button('Edit rules', 'edit', id, state.revision),
     ...(state.draft ? [button('Discard draft', 'cancel', id, state.revision)] : []),
-  ]]);
+  ], ...(state.draft?.pendingRequirements.length && mappingProposal(state)
+    ? [[button('Review supported mappings', 'mapview', id, state.revision)]] : []),
+  ...verificationLimitsButton(state,id)]);
 }
 
 export function createAgentSetup(store) {
@@ -92,20 +140,33 @@ export function createAgentSetup(store) {
           typeof callback.id !== 'string' || typeof callback.data !== 'string') return null;
       const acknowledge = (notice) => ({ callbackQueryId: callback.id, callbackNotice: notice });
       if (!allowedUserIds.has(id)) return acknowledge('Sift is in private testing.');
-      const match = /^agent:([1-9]\d*):(skip|cancel|approve|edit|risk):(\d+)$/.exec(callback.data);
+      const match = /^agent:([1-9]\d*):(skip|cancel|approve|edit|risk|limits|mapextras|mapsel|mapall|applysel|applyall|mapview):(\d+)$/.exec(callback.data);
       if (!match || Number(match[1]) !== id) return acknowledge('This button does not belong to your agent.');
       return store.process(update.update_id, () => {
         const state = store.get(id);
         if (state.revision !== Number(match[3])) return acknowledge('This button is out of date. Use /agent for the current rules.');
         const action = match[2];
-        if (action === 'risk') {
+        if (action === 'limits') return { ...verificationLimitsView(state,id), ...acknowledge('Saved rules unchanged.') };
+        if (['mapsel','mapall','mapview'].includes(action)) {
+          return {...mappingView(state,id,action==='mapsel'?'selected':action==='mapall'?'all':null),...acknowledge('Preview only. Saved rules unchanged.')};
+        }
+        if(['mapextras','applysel','applyall'].includes(action)) {
+          const proposal=mappingProposal(state,action==='applysel'?'selected':action==='applyall'?'all':null);
+          if(!proposal)return acknowledge('Finish or clarify the saved draft first. Nothing changed.');
+          if(proposal.parsed.unresolved.length)return acknowledge('Scope or policy remains unresolved; your saved instructions are unchanged.');
+          if(proposal.conflict)return acknowledge('A saved rule conflicts with these extras. Nothing changed.');
+          state.draft.rules=proposal.merged;state.draft.pendingRequirements=[];
+          state.draft.mappedExtras={originalText:proposal.originalText,interpretedText:proposal.interpretedText,liquidityScope:proposal.liquidityScope};
+        } else if (action === 'risk') {
           const previous = state.draft ?? state.approved;
           if (!previous || (state.draft && state.draft.step !== QUESTIONS.length)) return acknowledge('Complete the current setup first.');
           state.draft = { name:previous.name, step:QUESTIONS.length, pendingRequirements:[],
             rules:[...previous.rules.filter((r) => !RISK_FIELDS.includes(r.field)), ...TEST_RISK_RULES] };
         } else if (action === 'edit') {
+          const mappedExtras=(state.draft??state.approved)?.mappedExtras;
           state.draft = { ...blankDraft(state.draft?.pendingRequirements ?? []),
-            rules:(state.draft ?? state.approved)?.rules.filter((r) => RISK_FIELDS.includes(r.field)) ?? [] };
+            rules:(state.draft ?? state.approved)?.rules.filter((r) => RISK_FIELDS.includes(r.field)) ?? [],
+            ...(mappedExtras?{mappedExtras}: {}) };
         }
         else if (action === 'cancel') state.draft = null;
         else if (action === 'skip') {
@@ -115,7 +176,8 @@ export function createAgentSetup(store) {
           if (!state.draft || state.draft.step !== QUESTIONS.length) return acknowledge('Complete setup and review the rules first.');
           try { assertApprovable(state.draft); } catch (error) { return acknowledge(error.message); }
           state.approved = { name: state.draft.name, rules: state.draft.rules, pendingRequirements: [],
-            ...(state.draft.sourceDescription ? {sourceDescription:state.draft.sourceDescription} : {}) };
+            ...(state.draft.sourceDescription ? {sourceDescription:state.draft.sourceDescription} : {}),
+            ...(state.draft.mappedExtras ? {mappedExtras:state.draft.mappedExtras} : {}) };
           state.draft = null;
         }
         state.revision++;
@@ -131,6 +193,9 @@ export function createAgentSetup(store) {
     const state = store.get(id);
     const text = update.message.text.trim();
     if (command === 'agent') return view(state, id);
+    if(command==='mapextras') {
+      return mappingView(state,id);
+    }
     if (command === 'riskrules') {
       const previous = state.draft ?? state.approved;
       if (!previous || (state.draft && state.draft.step !== QUESTIONS.length)) return { chat_id:id, text:'Finish /setup first, then use /riskrules to review the explicit risk policy.' };

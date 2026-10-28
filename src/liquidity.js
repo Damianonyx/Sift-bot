@@ -1,13 +1,15 @@
 import { isSolanaAddress } from './market.js';
-import { createSolanaRpc, RPC_URL, SolanaRpcError } from './solana-rpc.js';
+import { createSolanaRpc, RPC_URL, SolanaRpcError, rpcFailureReason } from './solana-rpc.js';
 import { decodeRaydiumPool, observeLpAccounts, LiquidityEvidenceError, RAYDIUM_V4 } from './raydium-liquidity.js';
 import { decodePumpSwapPool, observePumpSwapLp, PUMPSWAP } from './pumpswap-liquidity.js';
+import { decodeCpmmPool, observeCpmmLp, RAYDIUM_CPMM } from './cpmm-liquidity.js';
 import { verifyLiquidityProtection } from './liquidity-protection.js';
 import { unknown } from './evidence-utils.js';
 
 const READERS = new Map([
   [RAYDIUM_V4, { name: 'Raydium classic AMM v4', decode: decodeRaydiumPool, observe: observeLpAccounts }],
   [PUMPSWAP, { name: 'PumpSwap', decode: decodePumpSwapPool, observe: observePumpSwapLp }],
+  [RAYDIUM_CPMM, { name: 'Raydium CPMM (classic SPL)', decode: decodeCpmmPool, observe: observeCpmmLp }],
 ]);
 
 const REASONS = {
@@ -21,15 +23,22 @@ const REASONS = {
   LP_MINT_AUTHORITY: 'The LP mint did not have the expected initialization and authority settings.',
   VAULT_AUTHORITY: 'A pool vault did not have the expected mint, authority or permissions.',
   INCONSISTENT_LP_SUPPLY: 'The LP mint supply exceeded the pool’s recorded LP amount.',
+  INCONSISTENT_QUOTE_RESERVES: 'PumpSwap quote balances, pending fees or signed reserve adjustments were inconsistent or left no usable quote liquidity.',
   EMPTY_VAULT: 'A pool vault had no token balance; protection was not assessed.',
   POOL_CHANGED: 'The pool’s linked accounts changed during the check. Retry later.',
   POOL_ADDRESS: 'The pool or LP mint address did not match the documented program seeds.',
   UNSUPPORTED_POOL_MODE: 'This pool uses an unsupported mode or virtual-reserve configuration.',
+  UNSUPPORTED_MAYHEM_MODE: 'This PumpSwap pool has Mayhem mode enabled; its LP protection is not supported by this reader.',
+  UNSUPPORTED_VIRTUAL_RESERVES: 'This PumpSwap pool has nonzero virtual quote reserves; this reader cannot verify its LP protection. This does not establish that liquidity is unlocked.',
+  UNSUPPORTED_TOKEN_PROGRAM: 'This pool uses a token program or extension layout outside this reader’s supported classic-SPL configuration.',
   UNSUPPORTED_TOKEN_EXTENSION: 'A Token-2022 extension is not supported by this reader; protection remains unknown.',
   SOURCE_UNAVAILABLE: 'Solana RPC was unavailable or denied access.',
   INVALID_RESPONSE: 'Solana RPC did not return a usable response.',
   NETWORK_OR_RESPONSE: 'Solana RPC could not be reached or read.',
+  TIMED_OUT: 'Solana RPC request timed out.',
 };
+export const liquidityFailureReason = code => Object.hasOwn(REASONS, code)
+  ? REASONS[code] : 'Required on-chain liquidity evidence could not be verified.';
 
 export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } = {}) {
   let inFlight = false, nextAllowedAt = 0;
@@ -56,6 +65,7 @@ export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } 
         const addresses = [result.pool, initial.lpMint, initial.baseVault, initial.quoteVault];
         const final = await rpc.accounts(addresses, { signal, minContextSlot: first.slot });
         const pool = reader.decode(final.accounts[0], snapshot.address, result.pool);
+        if (pool.openTime !== undefined && pool.openTime * 1000n > BigInt(now())) throw new LiquidityEvidenceError('POOL_NOT_TRADING');
         if (['lpMint', 'baseVault', 'quoteVault', 'baseMint', 'quoteMint', 'authority'].some((key) => initial[key] !== pool[key])) {
           throw new LiquidityEvidenceError('POOL_CHANGED');
         }
@@ -68,13 +78,15 @@ export function createLiquidityData({ rpc = createSolanaRpc(), now = Date.now } 
               readLinked: async (extra, minContextSlot) => {
                 const reread = await rpc.accounts([...addresses, ...extra], { signal, minContextSlot });
                 const current = reader.decode(reread.accounts[0], snapshot.address, result.pool);
+                if (current.openTime !== undefined && current.openTime * 1000n > BigInt(now())) throw new LiquidityEvidenceError('POOL_NOT_TRADING');
                 if (['lpMint','baseVault','quoteVault','baseMint','quoteMint','authority'].some((k) => current[k] !== pool[k])) throw new LiquidityEvidenceError('POOL_CHANGED');
                 result.slot = reread.slot;
                 result.observation = reader.observe(current, reread.accounts.slice(1,4));
                 return { observation: result.observation, extra: reread.accounts.slice(4) };
               } });
-          } catch {
-            result.protection = unknown('Protection evidence unavailable or incomplete.');
+          } catch (error) {
+            result.protection = unknown(error instanceof LiquidityEvidenceError
+              ? liquidityFailureReason(error.code) : rpcFailureReason(error));
           }
         }
         let timeUnavailable = false;
@@ -121,7 +133,7 @@ export function formatLiquidityReport(result) {
     lines.push(...result.protection.links.slice(0,3));
   }
   if (result.pool) lines.push(`Selected pool: ${result.pool}\nCoverage: one DEX Screener-selected pool from ${result.poolCount} supported market pools; other pools are not assessed. ${result.selection === 'reported_liquidity' ? 'Selected by highest known reported USD liquidity.' : 'Unranked fallback; pool liquidity amounts were unknown.'}`);
-  if (result.reason) lines.push(REASONS[result.reason] ?? 'Required on-chain evidence could not be verified.');
+  if (result.reason) lines.push(liquidityFailureReason(result.reason));
   if (result.program) lines.push(`Pool program: ${READERS.get(result.program)?.name ?? 'unsupported'}\nProgram evidence: https://solscan.io/account/${result.program}`);
   if (result.observation) {
     const observation = result.observation;
@@ -130,6 +142,11 @@ export function formatLiquidityReport(result) {
     lines.push(`LP ownership tokens outstanding: ${quantity}`);
     lines.push(observation.noOutstandingLp ? 'Observed: the LP mint has zero outstanding supply at this slot. The pool and its linked vaults passed the supported account checks.' :
       'Observed: LP tokens remain outstanding. They may be held by wallets or lockers; this check does not establish which.');
+    if (observation.quoteReserves) {
+      const q = observation.quoteReserves;
+      lines.push(`Quote reserves (raw token units; not USD):\nQuote mint: ${q.mint}\nVault balance: ${q.rawBalance}\nPending protocol / creator fees: ${q.protocolFees} / ${q.creatorFees}\nAfter pending fees: ${q.real}\nSigned virtual adjustment: ${q.virtual}\nEffective pricing reserves: ${q.effective}\nBoost component: ${q.boost}\nPending fees and virtual amounts are not protected cash liquidity.`);
+      if (observation.protectionUnsupported) lines.push('Boosted pool: account observations only. LP protection remains UNKNOWN for this mode.');
+    }
     lines.push(result.protection?.kind === 'burn' ? 'Burn evidence: a successful LP burn instruction was verified. Current LP supply is zero. This does not infer a burn percentage from a supply difference.' : result.program === PUMPSWAP ? 'Burn history: unknown. The pool’s recorded LP amount and the current mint supply can differ. Supply differences are not labelled burns.' :
       'Burn history: unknown. Supply differences can include an unissued protocol minimum; they are not labelled as burned liquidity. No burn transaction was traced.');
   }

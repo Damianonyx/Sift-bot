@@ -3,6 +3,7 @@ import { MARKET_FIELDS } from './rules.js';
 import { isSolanaAddress } from './market.js';
 import { WATCH_LIMIT, TOTAL_WATCH_LIMIT, REVIEW_TTL } from './watch-store.js';
 import { watchDetails, usableWatchSnapshot, watchMarketCheck } from './watch.js';
+import { withCopyableCAs } from './telegram-format.js';
 
 const button = (text, row, action) => ({ text, callback_data: `watch:${row.user_id}:${action}:${row.id}:${row.revision}` });
 const reply = (id, text, rows) => ({ chat_id: id, text, link_preview_options: { is_disabled: true },
@@ -39,7 +40,8 @@ export function createWatchCommands({ agents, market, now = Date.now, wait }) {
       if (receipt) return receipt;
       if (action === 'event') {
         const event = agents.watchEvent(id, value);
-        return event ? { ...reply(id, 'Saved monitoring report (not a fresh check):\n\n' + event.text), ...ack('Saved report.') } : ack('Report not available for your account.');
+        return event ? withCopyableCAs({ ...reply(id, 'Saved monitoring report (not a fresh check):\n\n' + event.text),
+          ...ack('Saved report.') }, [agents.watchGet(id, event.watch_id)?.token]) : ack('Report not available for your account.');
       }
       if (action === 'prompt') {
         const event = agents.discoveryAlert(id, value);
@@ -47,7 +49,7 @@ export function createWatchCommands({ agents, market, now = Date.now, wait }) {
       }
       const row = agents.watchGet(id, value);
       if (!row) return ack('Monitor not available for your account.');
-      if (action === 'view') return { ...reply(id, watchDetails(row, now()), controls(row, now())), ...ack('Monitor status.') };
+      if (action === 'view') return withCopyableCAs({ ...reply(id, watchDetails(row, now()), controls(row, now())), ...ack('Monitor status.') }, [row.token]);
       if (row.revision !== revision) return ack('This control is old. Use /watchlist for current controls.');
       let snapshot;
       if (action === 'start') {
@@ -64,7 +66,7 @@ export function createWatchCommands({ agents, market, now = Date.now, wait }) {
       }
       return agents.process(update.update_id, () => {
         const changed = action === 'start' ? agents.watchStart(id, value, revision, snapshot, now()) : agents.watchControl(id, value, revision, action, now());
-        return changed ? { ...reply(id, watchDetails(changed, now()), controls(changed, now())), ...ack(action === 'start' ? 'Market monitoring started.' : 'Monitor updated.') } : ack('Monitor changed or expired. Use /watchlist.');
+        return changed ? withCopyableCAs({ ...reply(id, watchDetails(changed, now()), controls(changed, now())), ...ack(action === 'start' ? 'Market monitoring started.' : 'Monitor updated.') }, [changed.token]) : ack('Monitor changed or expired. Use /watchlist.');
       });
     }
     const context = commandFor(update);
@@ -79,14 +81,14 @@ export function createWatchCommands({ agents, market, now = Date.now, wait }) {
         const saved = agents.get(id);
         const row = agents.watchCreate(id, parts[0], { dropPercent, hours, rules: saved.approved?.rules.filter((r) => MARKET_FIELDS.includes(r.field)) ?? [] }, now());
         if (!row) return reply(id, `A monitor for that token already exists, or the private-test capacity is full (${WATCH_LIMIT} open monitors per user; ${TOTAL_WATCH_LIMIT} total). Use /watchlist to review or stop one.`);
-        return reply(id, 'Review market monitoring · expires in 10 minutes\n\n' + watchDetails(row, now()), controls(row, now()));
+        return withCopyableCAs(reply(id, 'Review market monitoring · expires in 10 minutes\n\n' + watchDetails(row, now()), controls(row, now())), [row.token]);
       });
     }
     if (command === 'watchlist') {
       const rows = agents.watchList(id);
-      return reply(id, watchSummary(agents, id, now()) + '\n\n' + (rows.length ? rows.map((r) =>
+      return withCopyableCAs(reply(id, watchSummary(agents, id, now()) + '\n\n' + (rows.length ? rows.map((r) =>
         `#${r.id} · ${(r.ends_at && r.ends_at <= now() && ['active','paused'].includes(r.state)) || (r.state === 'review' && now() - r.created_at >= REVIEW_TTL) ? 'expired' : r.state}\nCA: ${r.token}`).join('\n\n') : 'No monitors yet. Use /watch for setup.'),
-      rows.map((r) => [button(`View monitor #${r.id}`, r, 'view')]));
+      rows.map((r) => [button(`View monitor #${r.id}`, r, 'view')])), rows.map((row) => row.token));
     }
     if (command === 'watchalerts') {
       const rows = agents.watchHistory(id);

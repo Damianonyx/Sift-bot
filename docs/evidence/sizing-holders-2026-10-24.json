@@ -1,0 +1,15 @@
+{
+  "checkedAt": "2026-10-24T21:00:13.098Z",
+  "kind": "read-only-public-sizing-and-holder-observations",
+  "token": "7GUnr7krtQhJwd6ASY2VUprd9t4c64zcgCsjdmZepump",
+  "quotes": {
+    "state": "unavailable",
+    "reason": "No validated two-way Raydium quote is available for this token and size. This is not proof of an unsellable token."
+  },
+  "holders": {
+    "state": "unknown",
+    "reason": "Solana RPC rate limit reached; wait before retrying."
+  },
+  "tradePlaced": false,
+  "telegramSent": false
+}

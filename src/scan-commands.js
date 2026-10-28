@@ -3,7 +3,9 @@ import { assertApprovable, describeRule } from './rules.js';
 import { criteriaKey } from './discovery-store.js';
 import { isSolanaAddress } from './market.js';
 import { ALERT_LIMIT, DISCOVERY_COVERAGE } from './discovery.js';
-import { formatSourceHealth } from './candidate-sources.js';
+import { formatSourceHealth, formatPumpObservation } from './candidate-sources.js';
+import { withCopyableCAs } from './telegram-format.js';
+import { verificationLimitsButton } from './risk-capabilities.js';
 
 const ISSUES = {
   RULES_CHANGED: 'Approved rules changed; review and start again.',
@@ -67,8 +69,8 @@ export function createScanCommands({ agents, feed }) {
         }
         const alert = agents.discoveryAlert(id, value);
         if (!alert) return ack('That report is not available for your account.');
-        if (action === 'view') return { chat_id: id, text: 'Saved discovery report (not a fresh check):\n\n' + alert.payload.text,
-          link_preview_options: { is_disabled: true }, ...ack('Saved report.') };
+        if (action === 'view') return withCopyableCAs({ chat_id: id, text: 'Saved discovery report (not a fresh check):\n\n' + alert.payload.text,
+          link_preview_options: { is_disabled: true }, ...ack('Saved report.') }, [alert.token]);
         if (action === 'mute') agents.discoveryMute(id, alert.token);
         else agents.discoveryDelivery(id, value, 'dismissed');
         return ack(action === 'mute' ? 'Token muted. Use /unmute followed by its CA to undo.' : 'Dismissed in your Sift alert history.');
@@ -86,9 +88,12 @@ export function createScanCommands({ agents, feed }) {
         scanSummary(agents, id), reason,
         saved.approved ? `Approved rules · ${saved.approved.name}\n${saved.approved.rules.map(describeRule).join('\n')}` : '',
         DISCOVERY_COVERAGE,
-        `Private test limits: roughly one cycle/minute, up to ${ALERT_LIMIT} new alerts per cycle per user. Extra matches may be delayed or missed; /scan shows suppression. Quiet hours are not implemented.`,
+        `Private test limits: roughly one cycle/minute, up to ${ALERT_LIMIT} new alerts per cycle per user. Extra matches may be delayed or missed; /scan shows suppression. /preferences sets UTC quiet hours. There is no paid priority or artificial free-tier delay.`,
         'Only approved supported rules are applied. Risk checks have limited coverage; unknown bundle coverage blocks the full risk policy. Market monitoring is separate: use /watch. Unknown required metrics cannot pass. An unapproved edit does not change a running scan’s previously approved rules.',
-      ].filter(Boolean).join('\n\n'), !reason && scan.state !== 'active' ? [[button('Start discovery', id, 'start', saved.revision)]] : undefined);
+      ].filter(Boolean).join('\n\n'), [
+        ...(!reason && scan.state !== 'active' ? [[button('Start discovery', id, 'start', saved.revision)]] : []),
+        ...verificationLimitsButton(saved,id),
+      ]);
     }
     if (['pause', 'resume', 'stop', 'unmute'].includes(command)) {
       return agents.process(update.update_id, () => {
@@ -108,16 +113,18 @@ export function createScanCommands({ agents, feed }) {
         }
         agents.discoverySet(id, command === 'pause' ? 'paused' : 'stopped', scan.criteria_key);
         agents.watchAllControl(id, command);
-        return reply(command === 'pause' ? 'Discovery paused. Market monitors also paused; their end times are unchanged. Use /resume for discovery and /watchlist to resume individual monitors. An alert already being sent may still arrive.' :
-          'Discovery stopped. Market monitors also stopped. Your criteria and report history remain saved. Use /scan or /watch to review before starting again. An alert already being sent may still arrive.');
+        for(const group of agents.groupList(id))if(group.state!=='stopped')agents.groupState(group.chat_id,command==='pause'?'paused':'stopped');
+        agents.preferencesPut(id,{...agents.preferences(id),followHours:0},Date.now());
+        return reply(command === 'pause' ? 'Discovery and group posting paused. Market monitors also paused; their end times are unchanged. Follow-up notifications disabled. Use /resume for discovery, /watchlist for monitors, /groups for group review, and /preferences for future follow-ups. An alert already being sent may still arrive.' :
+          'Discovery, group posting and market monitors stopped. Follow-up notifications disabled. Your criteria, evidence and performance history remain saved. Use /scan, /groups or /watch to review before starting again. An alert already being sent may still arrive.');
       });
     }
     if (command === 'alerts') {
       const history = agents.discoveryHistory(id);
       if (!history.length) return reply('No discovery reports have been recorded for your agent yet.');
-      return reply('Your latest saved discovery reports (not fresh checks):\n\n' + history.map((row) =>
+      return withCopyableCAs(reply('Your latest saved discovery reports (not fresh checks):\n\n' + history.map((row) =>
         `#${row.id} · ${row.state === 'pending' ? 'delivery uncertain after interruption' : row.state}\nCA: ${row.token}\n${new Date(row.created_at).toISOString()}`).join('\n\n'),
-      history.map((row) => [button(`View report #${row.id}`, id, 'view', row.id)]));
+      history.map((row) => [button(`View report #${row.id}`, id, 'view', row.id)])), history.map((row) => row.token));
     }
     if (command === 'sources') {
       try {
@@ -125,10 +132,11 @@ export function createScanCommands({ agents, feed }) {
         if (batch.sources) return reply([
           `Candidate sources: ${batch.candidates.length} distinct Solana candidates available for this cycle; ${batch.deferred} beyond the cycle limit.`,
           formatSourceHealth(batch.sources),
+          formatPumpObservation(batch.pumpObservation),
           batch.partial ? 'Coverage is partial. Stream connection alone does not prove event delivery; unavailable data is not an empty successful scan.' : '',
           DISCOVERY_COVERAGE,
           'Pump.fun candidates are retried from a bounded 20-minute queue while scanning. Launch events and virtual reserves do not establish USD liquidity, LP protection, developer holdings or bundle safety.',
-          'This checks source access only. It does not approve rules or activate scanning. A PumpPortal diagnostic connection lasts up to 30 seconds when no scan is active.',
+          'This checks source access only. It does not approve rules or activate scanning. The check waits up to 10 seconds for a PumpPortal event. Without an active scan, the diagnostic connection closes after its 30-second window.',
         ].filter(Boolean).join('\n\n'));
         return reply(`Candidate feed responded: ${batch.candidates.length} distinct Solana base-token candidates in ${batch.returnedPools} returned pools; ${batch.invalidPools} invalid pool rows excluded.\nFetched: ${new Date(batch.fetchedAt).toISOString()}${batch.cached ? ' (Sift feed cache; less than one minute old)' : ''}\n\n${DISCOVERY_COVERAGE}\n\nThis checks feed access only. It does not approve your rules or activate scanning.\nSource: ${batch.sourceUrl}`);
       } catch {

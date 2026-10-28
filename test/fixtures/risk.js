@@ -38,10 +38,13 @@ export function streamFixture(amount=1000n, unlock=Date.UTC(2027,3,14,12)) {
   return {data,tokens,escrow,metadata:()=>account(data,STREAMFLOW),account:()=>account(tokens,TOKEN_PROGRAM)};
 }
 export const transaction=(signature=sig(1),slot=100)=>({slot,blockTime:NOW/1000,transaction:{signatures:[signature],message:{accountKeys:[],instructions:[]}},meta:{err:null,innerInstructions:[],preTokenBalances:[],postTokenBalances:[]}});
-export function creation(signature=sig(1)) {
+export function creation(signature=sig(1), v2=false) {
   const tx=transaction(signature);const fields=['Synthetic','TEST','https://example.invalid'];
-  const bytes=Buffer.concat([discriminator('create'),...fields.map(s=>{const b=Buffer.from(s),n=Buffer.alloc(4);n.writeUInt32LE(b.length);return Buffer.concat([n,b]);}),publicKeyBytes(DEV)]);
-  const accounts=Array.from({length:14},(_,i)=>address(i+20));accounts[0]=CA;accounts[7]=DEV;
+  const bytes=Buffer.concat([discriminator(v2?'create_v2':'create'),...fields.map(s=>{const b=Buffer.from(s),n=Buffer.alloc(4);n.writeUInt32LE(b.length);return Buffer.concat([n,b]);}),publicKeyBytes(DEV),...(v2?[Buffer.alloc(11)]:[])]);
+  const accounts=Array.from({length:v2?16:14},(_,i)=>address(i+20));accounts[0]=CA;
+  const system='11111111111111111111111111111111',ata='ATokenGPvbdGVxr1b2hvZbsiqW5xWH25efTNsLJA8knL';
+  if(v2){accounts[5]=DEV;accounts[6]=system;accounts[7]='TokenzQdBNbLqP5VEhdkAS6EPFLC1PHnBqCXEpPxuEb';accounts[8]=ata;accounts[9]='MAyhSmzXzV1pTf7LsNkrNwkWKTo4ougAJ1PPg47MD4e';accounts[15]=PUMP;}
+  else{accounts[5]='metaqbxxUerdq28cj1RbAWkYQm3ybzjb6a8bt518x1s';accounts[7]=DEV;accounts[8]=system;accounts[9]=TOKEN_PROGRAM;accounts[10]=ata;accounts[11]='SysvarRent111111111111111111111111111111111';accounts[13]=PUMP;}
   tx.transaction.message.instructions=[{programId:PUMP,accounts,data:b58(bytes)}];
   tx.transaction.message.accountKeys=[{pubkey:DEV,signer:true},{pubkey:CA,signer:true}];return tx;
 }

@@ -43,9 +43,21 @@ export function decodePumpSwapPool(account, mint, address) {
   }
   for (const offset of [243,244,269,270]) if (data.length > offset && data[offset] > 1) return fail('ACCOUNT_LAYOUT');
   if (data.subarray(287).some(Boolean)) return fail('ACCOUNT_LAYOUT');
-  if ((data[243] ?? 0) !== 0 || data.subarray(245, Math.min(261, data.length)).some(Boolean)) return fail('UNSUPPORTED_POOL_MODE');
+  if ((data[243] ?? 0) !== 0) return fail('UNSUPPORTED_MAYHEM_MODE');
+  // Signed i128: v2 trades retain fees in the quote vault and subtract them
+  // from virtual reserves. Only the remainder after adding those fee buckets
+  // identifies boost reserves. Do not mistake ordinary unpaid fees for boost.
+  // Source: pump-public-docs @ 639b87fb45c3adeffa6f7c4a1bf0cb85e392bf22,
+  // VIRTUAL_QUOTE_RESERVES_FEE_ADJUSTMENT.md; pump-swap-sdk 2.2.0 realQuoteReserves.
+  const virtualQuoteReserves = data.length >= 261
+    ? (data.readBigInt64LE(253) << 64n) + data.readBigUInt64LE(245) : 0n;
+  const protocolFees = data.length >= 279 ? data.readBigUInt64LE(271) : 0n;
+  const creatorFees = data.length >= 287 ? data.readBigUInt64LE(279) : 0n;
+  const boostReserves = virtualQuoteReserves + protocolFees + creatorFees;
+  if (boostReserves < 0n) return fail('INCONSISTENT_QUOTE_RESERVES');
   const pool = { baseMint: key(data, 43), quoteMint: key(data, 75), lpMint: key(data, 107),
-    baseVault: key(data, 139), quoteVault: key(data, 171), lpReserve: data.readBigUInt64LE(203), authority: address };
+    baseVault: key(data, 139), quoteVault: key(data, 171), lpReserve: data.readBigUInt64LE(203), authority: address,
+    virtualQuoteReserves, protocolFees, creatorFees, boostReserves };
   if (pool.baseMint !== mint && pool.quoteMint !== mint) return fail('TOKEN_POOL_MISMATCH');
   if (new Set([pool.baseMint,pool.quoteMint,pool.lpMint,pool.baseVault,pool.quoteVault,address]).size !== 6 ||
       [pool.baseMint,pool.quoteMint,pool.lpMint,pool.baseVault,pool.quoteVault,address].includes(ZERO) || pool.lpReserve === 0n) return fail('ACCOUNT_LAYOUT');
@@ -103,12 +115,24 @@ export function observePumpSwapLp(pool, [mintAccount, baseAccount, quoteAccount]
   if (mint[45] !== 1 || mint.readUInt32LE(0) !== 1 || key(mint,4) !== pool.authority || mint.readUInt32LE(46) !== 0) return fail('LP_MINT_AUTHORITY');
   const supply = mint.readBigUInt64LE(36);
   if (supply > pool.lpReserve) return fail('INCONSISTENT_LP_SUPPLY');
+  let quoteBalance;
   for (const [account, expected] of [[baseAccount,pool.baseMint],[quoteAccount,pool.quoteMint]]) {
     const data = tokenData(account, 'account');
     if (key(data,0) !== expected || key(data,32) !== pool.authority || data[108] !== 1 ||
         data.readUInt32LE(72) !== 0 || data.readUInt32LE(129) !== 0) return fail('VAULT_AUTHORITY');
     if (data.readBigUInt64LE(64) === 0n) return fail('EMPTY_VAULT');
+    if (expected === pool.quoteMint) quoteBalance = data.readBigUInt64LE(64);
   }
+  // Pending protocol/creator fees are sweepable claims, not LP liquidity.
+  // Effective reserves are pricing quantities and must not be called cash.
+  const realQuoteReserves = quoteBalance - pool.protocolFees - pool.creatorFees;
+  const effectiveQuoteReserves = quoteBalance + pool.virtualQuoteReserves;
+  if (realQuoteReserves <= 0n || effectiveQuoteReserves <= 0n || effectiveQuoteReserves > (1n << 64n) - 1n)
+    return fail('INCONSISTENT_QUOTE_RESERVES');
   return { outstandingLp: supply.toString(), recordedLp: pool.lpReserve.toString(), lpDecimals: mint[44],
-    noOutstandingLp: supply === 0n, burnHistory: 'unknown', timedLocks: 'unknown', protectionRequirement: 'unknown' };
+    noOutstandingLp: supply === 0n, burnHistory: 'unknown', timedLocks: 'unknown', protectionRequirement: 'unknown',
+    ...(pool.boostReserves > 0n ? { protectionUnsupported: 'PUMPSWAP_BOOST' } : {}),
+    quoteReserves: { mint: pool.quoteMint, rawBalance: quoteBalance.toString(), virtual: pool.virtualQuoteReserves.toString(),
+      protocolFees: pool.protocolFees.toString(), creatorFees: pool.creatorFees.toString(),
+      real: realQuoteReserves.toString(), effective: effectiveQuoteReserves.toString(), boost: pool.boostReserves.toString() } };
 }
