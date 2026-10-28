@@ -30,12 +30,24 @@ export function readWebConfig(env) {
     codespaceLocalHosts:codespace ? [`localhost:${port}`, `127.0.0.1:${port}`, `[::1]:${port}`] : [] };
 }
 
-export function isWebRequestHostAllowed(req, config) {
-  if (req.headers.host === new URL(config.origin).host) return true;
+function isCodespaceLoopbackRequest(req, config) {
   // Codespaces can rewrite Host on its local tunnel connection. Never derive
   // the public origin or trust a peer from client-supplied forwarding headers.
   const localPeer = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress);
   return localPeer && Boolean(config.codespaceLocalHosts?.includes(req.headers.host));
+}
+
+export function isWebRequestHostAllowed(req, config) {
+  return req.headers.host === new URL(config.origin).host || isCodespaceLoopbackRequest(req, config);
+}
+
+export function isWebRequestOriginAllowed(req, config) {
+  if (req.headers.origin === config.origin) return true;
+  // The tunnel also rewrites Origin for same-origin browser requests. A local
+  // origin alone is insufficient: require the known local tunnel and browser
+  // Fetch Metadata. JavaScript cannot set Sec-Fetch-* headers across origins.
+  if (!isCodespaceLoopbackRequest(req, config) || req.headers['sec-fetch-site'] !== 'same-origin') return false;
+  return req.headers.origin === `http://${req.headers.host}` || req.headers.origin === `https://${req.headers.host}`;
 }
 
 export function createWebServer({ config, agents, respond, allowedUserIds, now = Date.now, signal }) {
@@ -122,7 +134,7 @@ export function createWebServer({ config, agents, respond, allowedUserIds, now =
       if (path.startsWith('/api/')) {
         if (!['GET','POST'].includes(req.method)) throw fail(405,'Method not supported.');
         if (req.headers['sec-fetch-site'] === 'cross-site') throw fail(403,'Open the app directly.');
-        if (req.method === 'POST' && req.headers.origin !== config.origin) throw fail(403,'Request origin rejected.');
+        if (req.method === 'POST' && !isWebRequestOriginAllowed(req, config)) throw fail(403,'Request origin rejected.');
         if (req.method === 'POST' && path === '/api/login') {
           const data = await body(req);
           prune();

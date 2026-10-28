@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { request as httpRequest } from 'node:http';
 import { fixture,input,CA } from './web-fixture.js';
-import { readWebConfig, isWebRequestHostAllowed } from '../src/web-server.js';
+import { readWebConfig, isWebRequestHostAllowed, isWebRequestOriginAllowed } from '../src/web-server.js';
 import { withWebReceipt } from '../src/agent-store.js';
 
 async function setup(t,options={}) {
@@ -83,6 +83,40 @@ test('Codespaces rewritten Host serves the app and completes sign-in without wea
   assert.equal((await f.request('/api/workspace',{...auth,headers:{...headers,host:'evil.invalid'}})).status,403);
   f.allowedUserIds.delete(42);
   assert.equal((await f.request('/api/workspace',auth)).status,401);
+});
+test('rewritten Origin is accepted only on the known local tunnel with same-origin Fetch Metadata',()=>{
+  const config=readWebConfig(codespaceEnv);
+  const req={headers:{host:'localhost:3000',origin:'http://localhost:3000','sec-fetch-site':'same-origin'},socket:{remoteAddress:'127.0.0.1'}};
+  assert.equal(isWebRequestOriginAllowed(req,config),true);
+  assert.equal(isWebRequestOriginAllowed(req,readWebConfig({...codespaceEnv,CODESPACES:'false'})),false);
+  assert.equal(isWebRequestOriginAllowed({...req,socket:{remoteAddress:'192.0.2.1'}},config),false);
+  for(const headers of [
+    {'sec-fetch-site':undefined}, {'sec-fetch-site':'same-site'}, {'sec-fetch-site':'cross-site'}, {'sec-fetch-site':'none'},
+    {origin:undefined}, {origin:'null'}, {origin:'http://localhost:3001'}, {origin:'http://localhost:3000/'},
+    {origin:'https://evil.invalid'}, {host:'evil.invalid'},
+    {origin:'https://evil.invalid','x-forwarded-host':new URL(config.origin).host,'x-forwarded-for':'127.0.0.1'}
+  ]) assert.equal(isWebRequestOriginAllowed({...req,headers:{...req.headers,...headers}},config),false);
+});
+test('sign-in, private commands and logout work with both tunnel headers rewritten; cross-site requests fail',async t=>{
+  const config=readWebConfig(codespaceEnv),f=await setup(t,{origin:config.origin,webConfig:config});
+  for(const host of config.codespaceLocalHosts) {
+    const headers={host,'sec-fetch-site':'same-origin'},origin=`http://${host}`,code=f.code();
+    for(const site of ['cross-site','same-site','none',undefined]) {
+      const r=await f.request('/api/login',{origin,headers:{...headers,'sec-fetch-site':site??''},body:{code}});
+      assert.equal(r.status,403);assert.equal(r.headers.get('set-cookie'),null);
+    }
+    const login=await f.request('/api/login',{origin,headers,body:{code}});
+    assert.equal(login.status,200);assert.match(login.headers.get('set-cookie'),/^__Host-sift=.*; Secure$/);
+    const auth={origin,headers,cookie:login.headers.get('set-cookie').split(';')[0],csrf:login.data.csrf};
+    assert.equal((await f.request('/api/login',{origin,headers,body:{code}})).status,401);
+    assert.equal((await f.request('/api/workspace',auth)).status,200);
+    assert.equal((await f.command(auth,'/agent')).status,200);
+    assert.equal((await f.command({...auth,csrf:undefined},'/agent')).status,403);
+    assert.equal((await f.command({...auth,origin:'https://evil.invalid'},'/agent')).status,403);
+    assert.equal((await f.command({...auth,headers:{...headers,'sec-fetch-site':'same-site'}},'/agent')).status,403);
+    assert.equal((await f.request('/api/logout',{...auth,body:{}})).status,200);
+    assert.equal((await f.request('/api/workspace',auth)).status,401);
+  }
 });
 test('web auth binds a one-use link to an allowed Telegram user; no client user IDs',async t=>{
   const f=await setup(t);assert.equal((await f.request('/api/workspace')).status,401);

@@ -30,10 +30,14 @@ Codespaces may rewrite the request Host to `localhost:3000`. When `CODESPACES`
 is `true` and the configured HTTPS origin exactly matches this Codespace's name,
 port and forwarding domain, the server also accepts local hostnames for that
 port from a loopback TCP peer only. Other deployments retain exact public Host
-checking. Forwarding headers never select the trusted origin or peer. Cookies
-remain Secure and every mutation still requires the exact public Origin and
+checking. Forwarding headers never select the trusted origin or peer. The tunnel
+can also rewrite Origin to its local HTTP(S) address. That origin is accepted
+only when it exactly matches the accepted local Host and browser Fetch Metadata
+says `Sec-Fetch-Site: same-origin`. Missing, null, foreign, cross-site and
+same-site rewritten origins fail. Normal requests still require the exact public
+Origin. Cookies remain Secure and authenticated mutations still require the
 session CSRF token. Do not change `SIFT_WEB_ORIGIN` to localhost to work around
-a forwarded-host error.
+a forwarded-header error.
 
 ## Authentication and mutations
 
@@ -44,8 +48,9 @@ a forwarded-host error.
   eight hours, and are revoked at restart. At most three sessions per user.
 - `/web logout` revokes all the user's sessions and unused links. Browser logout
   revokes that browser session. Pending web requests receive an abort signal.
-- Every API call checks the configured Host and current tester allowlist.
-  Mutations require exact Origin and a session CSRF token. No CORS is enabled.
+- Every API call checks the accepted Host and current tester allowlist.
+  Mutations require an accepted browser Origin (as above) and a session CSRF
+  token. No CORS is enabled.
 - Callback controls use short-lived opaque session IDs and the bot's original
   ownership, revision and admin checks. The browser cannot submit raw callbacks.
 - Commands are allowlisted, body size is bounded, actions are serialized per user
@@ -67,8 +72,9 @@ The frontend only reads saved candidate checks; refresh does not trigger a scan.
 `test/web.test.js` exercises authentication, one-time link expiration, allowlist
 revocation, CSRF and host enforcement, private-file isolation, cross-user access,
 stale callbacks, duplicate commands and preservation of unresolved criteria.
-It also checks sign-in through a simulated Codespaces Host rewrite, including
-Secure cookies, denied foreign origins/hosts, and spoofed forwarding headers.
+It also checks sign-in through simulated Codespaces Host and Origin rewrites,
+including Secure cookies, logout, denied foreign origins/hosts, missing or
+cross-origin Fetch Metadata, and spoofed forwarding headers.
 It also runs description → review → approval → explicit activation → discovery
 against the real store and runner with synthetic providers and Telegram delivery.
 
