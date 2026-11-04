@@ -1,6 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
 import { readConfig, replyFor, verifyBot } from './bot.js';
-import { createTelegram, TelegramError } from './telegram.js';
+import { createTelegram, isPermanentReplyError, TelegramError } from './telegram.js';
 
 const shutdown = new AbortController();
 for (const event of ['SIGINT', 'SIGTERM']) {
@@ -32,9 +32,10 @@ async function main() {
           try {
             await call('sendMessage', reply, signal);
           } catch (error) {
-            if (!(error instanceof TelegramError) || error.code !== 403) throw error;
-            // The user blocked the bot or chat access was removed. Skip this reply.
-            console.warn('Telegram denied a reply (403); the update was skipped.');
+            if (!isPermanentReplyError(error)) throw error;
+            // e.g. the user blocked the bot (403) or the chat is gone (400).
+            // Retrying would repeat forever and block every later update.
+            console.warn(`Telegram rejected a reply (${error.code}); the update was skipped.`);
           }
         }
         offset = update.update_id + 1;

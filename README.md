@@ -203,6 +203,11 @@ Tester IDs are read from configuration at startup. Message bodies and
 bot tokens are not logged by this application. Telegram still handles
 messages under its own service policies.
 
+If Telegram permanently rejects a reply (a 4xx error other than a rate
+limit, such as a blocked bot or a missing chat), that update is skipped
+with a warning so one message cannot stall all later ones. Rate limits,
+server errors, and network failures are retried.
+
 Update offsets are held in memory. A restart or an uncertain network
 delivery can repeat a greeting. Persistent processing and delivery
 records are required before adding discovery or monitoring alerts.
