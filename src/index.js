@@ -1,5 +1,6 @@
 import { setTimeout as delay } from 'node:timers/promises';
-import { readConfig, replyFor, verifyBot } from './bot.js';
+import { readConfig, respond, verifyBot } from './bot.js';
+import { createInterpreter, readInterpreterConfig } from './interpret.js';
 import { createTelegram, isPermanentReplyError, TelegramError } from './telegram.js';
 
 const shutdown = new AbortController();
@@ -9,6 +10,8 @@ for (const event of ['SIGINT', 'SIGTERM']) {
 
 async function main() {
   const { token, allowedUserIds } = readConfig(process.env);
+  const interpreterConfig = readInterpreterConfig(process.env);
+  const interpret = interpreterConfig ? createInterpreter(interpreterConfig) : null;
   const call = createTelegram(token);
   const signal = shutdown.signal;
   const identity = await call('getMe', {}, signal);
@@ -16,6 +19,9 @@ async function main() {
   verifyBot(identity, webhook);
   console.log('Sift welcome bot is running. Discovery and monitoring are not connected.');
   if (allowedUserIds.size === 0) console.log('No testers configured. Only /id lookup is available.');
+  console.log(interpret
+    ? `Plain-language commands from testers are interpreted by Claude (${interpreterConfig.model}).`
+    : 'Plain-language commands are off. Set ANTHROPIC_API_KEY to enable them.');
 
   // In-memory offset is enough for this stateless greeting milestone.
   // Persistent processing/delivery records belong to the monitoring milestone.
@@ -27,7 +33,7 @@ async function main() {
       for (const update of updates) {
         if (signal.aborted) return;
         if (!Number.isSafeInteger(update?.update_id)) throw new TelegramError('INVALID_RESPONSE');
-        const reply = replyFor(update, allowedUserIds);
+        const reply = await respond(update, allowedUserIds, interpret, signal);
         if (reply) {
           try {
             await call('sendMessage', reply, signal);
