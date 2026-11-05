@@ -206,7 +206,10 @@ continued use. Running this test does not establish continuous hosting.
 
 This version uses long polling and replies only while its process is
 running. GitHub stores the code; it does not host this always-on process.
-Hosting selection and any spending are separate later decisions.
+To keep the bot online, run it on a small Linux server (VPS) as a
+system service: [docs/hosting.md](docs/hosting.md) walks through the
+setup, and `deploy/sift-bot.service` is the service file. The server
+provider's fee is a separate decision for the owner.
 
 There is no database, scanning job, saved strategy, or alert history.
 Tester IDs are read from configuration at startup. Message bodies and
