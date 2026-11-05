@@ -3,10 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Sift's first private Telegram welcome-bot milestone.",
-  "engines": { "node": ">=24 <25" },
+  "description": "Sift's first private Telegram welcome-bot milestone, with optional Claude-interpreted plain-language commands.",
+  "engines": {
+    "node": ">=24 <25"
+  },
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.js",
     "test": "node --test"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^1.5.0"
   }
 }

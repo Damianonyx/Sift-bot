@@ -7,19 +7,20 @@ export const WELCOME = [
   'Use /help for commands or /status to see what is available.',
 ].join('\n\n');
 
-const HELP = [
+const helpText = (aiCommands) => [
   'Sift is in private testing.',
   '/start — Welcome to Sift\n/help — Available commands\n/status — What works today\n/id — Your Telegram user ID',
+  ...(aiCommands ? ['You can also ask in plain words, such as "what works today?"'] : []),
   'Token checks, screening rules and monitoring will arrive in later stages. No wallet connection is needed.',
 ].join('\n\n');
 
-const STATUS = [
+const statusText = (aiCommands) => [
   'Sift status',
-  'Telegram replies: available\nDiscovery: not connected\nAI interpretation: not connected\nToken data: not connected\nMonitoring: not connected\nSaved criteria: not available',
+  `Telegram replies: available\nPlain-language commands: ${aiCommands ? 'available (Claude)' : 'off'}\nDiscovery: not connected\nAI screening: not connected\nToken data: not connected\nMonitoring: not connected\nSaved criteria: not available`,
   'This is a welcome-bot test. No scans or alerts are running.',
 ].join('\n\n');
 
-const REPLIES = new Map([['start', WELCOME], ['help', HELP], ['status', STATUS]]);
+const UNSUPPORTED = 'This version supports /start, /help, /status and /id. Token checks and scanning are not available yet.';
 
 export function readConfig(env) {
   const token = env.TELEGRAM_BOT_TOKEN?.trim();
@@ -38,27 +39,50 @@ export function readConfig(env) {
   return { token, allowedUserIds };
 }
 
-// Pure routing: private chats only, no state changes and no message logging.
-export function replyFor(update, allowedUserIds) {
+// Private text messages from people only; everything else is ignored.
+function privateMessage(update) {
   const message = update?.message;
   if (message?.chat?.type !== 'private' || message.from?.is_bot ||
       !Number.isSafeInteger(message.from?.id) ||
       !Number.isSafeInteger(message.chat.id) || typeof message.text !== 'string') {
     return null;
   }
+  return message;
+}
 
-  const match = /^\/([a-zA-Z0-9_]+)(?:@([a-zA-Z0-9_]+))?(?:\s|$)/.exec(message.text);
-  if (match?.[2] && match[2].toLowerCase() !== BOT_USERNAME.toLowerCase()) return null;
-  const command = match?.[1]?.toLowerCase();
+function commandReply(command, message, allowedUserIds, aiCommands) {
+  const chat_id = message.chat.id;
   if (command === 'id') {
-    return { chat_id: message.chat.id, text: `Your Telegram user ID: ${message.from.id}\n\nSift is in private testing. This command only shows your own ID.` };
+    return { chat_id, text: `Your Telegram user ID: ${message.from.id}\n\nSift is in private testing. This command only shows your own ID.` };
   }
   if (!allowedUserIds.has(message.from.id)) {
-    return { chat_id: message.chat.id, text: 'Sift is in private testing. Your account does not have tester access yet.\n\nUse /id to find the ID needed for access.' };
+    return { chat_id, text: 'Sift is in private testing. Your account does not have tester access yet.\n\nUse /id to find the ID needed for access.' };
   }
-  const text = REPLIES.get(command) ??
-    'This version supports /start, /help, /status and /id. Token checks and scanning are not available yet.';
-  return { chat_id: message.chat.id, text };
+  if (command === 'start') return { chat_id, text: WELCOME };
+  if (command === 'help') return { chat_id, text: helpText(aiCommands) };
+  if (command === 'status') return { chat_id, text: statusText(aiCommands) };
+  return { chat_id, text: UNSUPPORTED };
+}
+
+// Pure routing: private chats only, no state changes and no message logging.
+export function replyFor(update, allowedUserIds, aiCommands = false) {
+  const message = privateMessage(update);
+  if (!message) return null;
+  const match = /^\/([a-zA-Z0-9_]+)(?:@([a-zA-Z0-9_]+))?(?:\s|$)/.exec(message.text);
+  if (match?.[2] && match[2].toLowerCase() !== BOT_USERNAME.toLowerCase()) return null;
+  return commandReply(match?.[1]?.toLowerCase(), message, allowedUserIds, aiCommands);
+}
+
+// Plain-language messages from approved testers may be mapped to a command by
+// `interpret` (Claude). Slash commands and unlisted accounts never reach it,
+// and the reply is always one of the fixed texts above.
+export async function respond(update, allowedUserIds, interpret, signal) {
+  const message = privateMessage(update);
+  if (interpret && message && !message.text.startsWith('/') && allowedUserIds.has(message.from.id)) {
+    const command = await interpret(message.text, signal);
+    if (command) return commandReply(command, message, allowedUserIds, true);
+  }
+  return replyFor(update, allowedUserIds, Boolean(interpret));
 }
 
 export function verifyBot(identity, webhook) {

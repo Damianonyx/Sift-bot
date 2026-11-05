@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readConfig, replyFor, verifyBot, WELCOME } from '../src/bot.js';
-import { createTelegram, TelegramError } from '../src/telegram.js';
+import { createTelegram, isPermanentReplyError, TelegramError } from '../src/telegram.js';
 
 const testToken = `12345:${'x'.repeat(30)}`; // Deliberately fake; no network calls in tests.
 const allowed = new Set([42]);
@@ -94,4 +94,13 @@ test('network failures and invalid JSON never expose the token in error messages
       return true;
     });
   }
+});
+
+test('replies Telegram permanently rejects are skipped so one update cannot stall polling', () => {
+  for (const code of [400, 403]) assert.equal(isPermanentReplyError(new TelegramError(code)), true);
+  // Misconfiguration must still stop the process; rate limits and outages must still retry.
+  for (const code of [401, 404, 409, 429, 500, 502, 'NETWORK_OR_RESPONSE', 'STOPPED']) {
+    assert.equal(isPermanentReplyError(new TelegramError(code)), false);
+  }
+  assert.equal(isPermanentReplyError(new Error('not from Telegram')), false);
 });

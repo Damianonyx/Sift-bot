@@ -22,6 +22,10 @@ the first welcome-bot implementation for the existing @SiftAgentbot:
 - `/help`: the commands available in this version.
 - `/status`: an honest summary of what is and is not connected.
 - `/id`: shows the sender their own Telegram user ID in a private chat.
+- Plain-language commands (optional): when `ANTHROPIC_API_KEY` is set,
+  Claude maps an approved tester's free text, such as "what works
+  today?", to one of the commands above. Sift still sends its fixed
+  reply for that command; Claude never writes the reply text.
 
 All nine offline tests passed locally and in the owner's Codespace.
 On 2026-10-11, owner-provided screenshots confirmed live `/id`,
@@ -30,7 +34,7 @@ The status reply correctly identifies scanning and monitoring as unavailable.
 The bot was run temporarily in GitHub Codespaces using Codespaces
 secrets. Continuous hosting has not been configured.
 
-Discovery, AI interpretation, token checks, monitoring, and durable
+Discovery, AI screening, token checks, monitoring, and durable
 user/agent state are not implemented. The product features below
 remain planned. The first welcome-response milestone is verified;
 the remaining live acceptance checks below still need confirmation.
@@ -134,16 +138,18 @@ and what remains incomplete.
 
 ## Development setup
 
-This first milestone uses Node.js 24 LTS and its built-in HTTP and
-test APIs. There are no third-party packages to install.
+This milestone uses Node.js 24 LTS and its built-in HTTP and test
+APIs. Its only package is Anthropic's official SDK
+(`@anthropic-ai/sdk`), used for optional plain-language commands.
 
 ### Local checks
 
 ```sh
+npm install
 npm test
 ```
 
-Tests do not need credentials and do not contact Telegram.
+Tests do not need credentials and do not contact Telegram or Anthropic.
 
 ### Connect the existing bot
 
@@ -158,6 +164,10 @@ GitHub issue, a chat message, or a public repository file editor.
 5. Add the returned numeric ID to `SIFT_ALLOWED_USER_IDS` and restart.
    Additional testers can be added as comma-separated IDs.
 6. Send `/start`, `/help`, and `/status` from an allowed account.
+7. Optional: set `ANTHROPIC_API_KEY` to turn on plain-language commands
+   and restart. Send "what can you do?" from an allowed account; the
+   reply should be the `/help` text. `SIFT_CLAUDE_MODEL` overrides the
+   default model, `claude-opus-5-5`.
 
 The process verifies that the token belongs to @SiftAgentbot and
 refuses to start polling if a webhook is configured. It never deletes
@@ -180,8 +190,8 @@ have not yet been confirmed in live Telegram testing.
 
 ### Testing in GitHub Codespaces
 
-Set `TELEGRAM_BOT_TOKEN` and `SIFT_ALLOWED_USER_IDS` as personal
-Codespaces secrets, granting access only to this repository. Stop and
+Set `TELEGRAM_BOT_TOKEN` and `SIFT_ALLOWED_USER_IDS` (and optionally
+`ANTHROPIC_API_KEY`) as personal Codespaces secrets, granting access only to this repository. Stop and
 reopen an existing Codespace after adding or changing those secrets,
 then run `npm start`. A local `.env` file is unnecessary in this setup;
 the `.env not found` notice is expected when the variables come from
@@ -196,12 +206,28 @@ continued use. Running this test does not establish continuous hosting.
 
 This version uses long polling and replies only while its process is
 running. GitHub stores the code; it does not host this always-on process.
-Hosting selection and any spending are separate later decisions.
+To keep the bot online, run it on a small Linux server (VPS) as a
+system service: [docs/hosting.md](docs/hosting.md) walks through the
+setup, and `deploy/sift-bot.service` is the service file. The server
+provider's fee is a separate decision for the owner.
 
 There is no database, scanning job, saved strategy, or alert history.
 Tester IDs are read from configuration at startup. Message bodies and
 bot tokens are not logged by this application. Telegram still handles
 messages under its own service policies.
+
+When plain-language commands are on, the text of an approved tester's
+non-command message (up to 500 characters) is sent to Anthropic's API
+to choose a command, and is handled under Anthropic's API policies.
+Slash commands and messages from unlisted accounts are never sent.
+Each such message is one paid API request. If Claude is unavailable,
+declines, or answers outside the fixed command list, Sift sends its
+usual "not available yet" reply instead.
+
+If Telegram permanently rejects a reply (a 4xx error other than a rate
+limit, such as a blocked bot or a missing chat), that update is skipped
+with a warning so one message cannot stall all later ones. Rate limits,
+server errors, and network failures are retried.
 
 Update offsets are held in memory. A restart or an uncertain network
 delivery can repeat a greeting. Persistent processing and delivery
