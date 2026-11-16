@@ -27,10 +27,9 @@ export function readConfig(env) {
   if (!token || !/^\d+:[A-Za-z0-9_-]{20,}$/.test(token)) {
     throw new Error('Set a valid TELEGRAM_BOT_TOKEN in secure configuration.');
   }
-  const ids = (env.SIFT_ALLOWED_USER_IDS ?? '').trim();
   const allowedUserIds = new Set();
-  for (const raw of ids ? ids.split(',') : []) {
-    const id = raw.trim();
+  // Empty entries (a trailing comma, say) are ignored; anything else must be an ID.
+  for (const id of (env.SIFT_ALLOWED_USER_IDS ?? '').split(',').map((s) => s.trim()).filter(Boolean)) {
     if (!/^[1-9]\d*$/.test(id) || !Number.isSafeInteger(Number(id))) {
       throw new Error('SIFT_ALLOWED_USER_IDS must contain comma-separated positive numeric IDs.');
     }
@@ -74,15 +73,16 @@ export function replyFor(update, allowedUserIds, aiCommands = false) {
 }
 
 // Plain-language messages from approved testers may be mapped to a command by
-// `interpret` (Claude). Slash commands and unlisted accounts never reach it,
+// `interpreter` (Claude). Slash commands and unlisted accounts never reach it,
 // and the reply is always one of the fixed texts above.
-export async function respond(update, allowedUserIds, interpret, signal) {
+export async function respond(update, allowedUserIds, interpreter, signal) {
   const message = privateMessage(update);
-  if (interpret && message && !message.text.startsWith('/') && allowedUserIds.has(message.from.id)) {
-    const command = await interpret(message.text, signal);
+  if (interpreter?.available && message && !message.text.startsWith('/') && allowedUserIds.has(message.from.id)) {
+    const command = await interpreter.interpret(message.text, { userId: message.from.id, signal });
     if (command) return commandReply(command, message, allowedUserIds, true);
   }
-  return replyFor(update, allowedUserIds, Boolean(interpret));
+  // Read `available` again: a rejected key switches it off during the call.
+  return replyFor(update, allowedUserIds, Boolean(interpreter?.available));
 }
 
 export function verifyBot(identity, webhook) {

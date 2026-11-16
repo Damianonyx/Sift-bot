@@ -15,6 +15,8 @@ test('configuration fails closed without a valid token or numeric tester IDs', (
   assert.throws(() => readConfig({ TELEGRAM_BOT_TOKEN: testToken, SIFT_ALLOWED_USER_IDS: '42,wrong' }), /numeric IDs/);
   assert.equal(readConfig({ TELEGRAM_BOT_TOKEN: testToken }).allowedUserIds.size, 0);
   assert.deepEqual(readConfig({ TELEGRAM_BOT_TOKEN: testToken, SIFT_ALLOWED_USER_IDS: '42, 57' }).allowedUserIds, new Set([42, 57]));
+  assert.deepEqual(readConfig({ TELEGRAM_BOT_TOKEN: testToken, SIFT_ALLOWED_USER_IDS: '42,' }).allowedUserIds, new Set([42]));
+  assert.throws(() => readConfig({ TELEGRAM_BOT_TOKEN: testToken, SIFT_ALLOWED_USER_IDS: '42, -1' }), /numeric IDs/);
 });
 
 test('allowed tester receives the welcome, including a Telegram deep-link start', () => {

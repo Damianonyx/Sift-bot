@@ -6,6 +6,11 @@ import Anthropic from '@anthropic-ai/sdk';
 export const INTERPRETED_COMMANDS = ['start', 'help', 'status', 'id', 'unsupported'];
 export const MAX_INTERPRET_LENGTH = 500;
 export const DEFAULT_CLAUDE_MODEL = 'claude-opus-5-5';
+// Each interpreted message is a paid request and holds up the reply queue
+// while it runs, so each tester gets a small budget; beyond it, fixed replies.
+export const RATE_LIMIT = { requests: 5, windowMs: 60_000 };
+// The key or model is wrong, so every later request would fail the same way.
+const DISABLING_STATUSES = [401, 403, 404];
 
 const SYSTEM = `You route private Telegram messages for Sift, a memecoin discovery bot that is in private testing.
 Choose the single command that matches what the user is asking for:
@@ -36,16 +41,34 @@ export function readInterpreterConfig(env) {
   return { model };
 }
 
-// Returns one of INTERPRETED_COMMANDS, or null when interpretation is not
-// possible (too long, refused, malformed, or the API failed). Never throws, so
-// a Claude outage cannot stall Telegram polling; callers fall back to fixed text.
+// `interpret` returns one of INTERPRETED_COMMANDS, or null when interpretation
+// is not possible (too long, over the rate limit, refused, malformed, or the
+// API failed). It never throws, so a Claude outage cannot stall Telegram
+// polling; callers fall back to fixed text. `available` turns false for the
+// rest of the process after the API rejects the key or model.
 export function createInterpreter({
   model = DEFAULT_CLAUDE_MODEL,
-  client = new Anthropic({ maxRetries: 1, timeout: 20_000 }),
+  // logLevel 'off': ANTHROPIC_LOG=debug would otherwise log message text.
+  client = new Anthropic({ maxRetries: 1, timeout: 20_000, logLevel: 'off' }),
   log = console,
+  limit = RATE_LIMIT,
+  now = Date.now,
 } = {}) {
-  return async function interpret(text, signal) {
-    if (typeof text !== 'string' || !text.trim() || text.length > MAX_INTERPRET_LENGTH) return null;
+  let available = true;
+  const recent = new Map(); // userId -> request times within the window
+
+  function withinLimit(userId) {
+    const since = now() - limit.windowMs;
+    const times = (recent.get(userId) ?? []).filter((t) => t > since);
+    if (times.length >= limit.requests) return false;
+    times.push(now());
+    recent.set(userId, times);
+    return true;
+  }
+
+  async function interpret(text, { userId, signal } = {}) {
+    if (!available || typeof text !== 'string' || !text.trim() || text.length > MAX_INTERPRET_LENGTH) return null;
+    if (!withinLimit(userId)) return null;
     try {
       const response = await client.beta.messages.create({
         model,
@@ -65,10 +88,17 @@ export function createInterpreter({
     } catch (error) {
       if (signal?.aborted) return null;
       // Log only the status code: never message text, keys or response bodies.
-      log.warn(error instanceof Anthropic.APIError
-        ? `Claude request failed (${error.status ?? 'network'}); using the fixed reply.`
-        : 'Claude response could not be read; using the fixed reply.');
+      if (error instanceof Anthropic.APIError && DISABLING_STATUSES.includes(error.status)) {
+        available = false;
+        log.warn(`Claude rejected the API key or model (${error.status}); plain-language commands are off until restart.`);
+      } else {
+        log.warn(error instanceof Anthropic.APIError
+          ? `Claude request failed (${error.status ?? 'network'}); using the fixed reply.`
+          : 'Claude response could not be read; using the fixed reply.');
+      }
       return null;
     }
-  };
+  }
+
+  return { interpret, get available() { return available; } };
 }

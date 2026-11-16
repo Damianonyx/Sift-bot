@@ -224,6 +224,13 @@ Each such message is one paid API request. If Claude is unavailable,
 declines, or answers outside the fixed command list, Sift sends its
 usual "not available yet" reply instead.
 
+Each tester can make up to 5 such requests a minute; further messages
+get the fixed replies without calling Claude. If Anthropic rejects the
+API key or model, plain-language commands turn off until the next
+restart, and `/status` says so. Updates are answered one at a time, so a
+slow Claude request delays later replies (by up to about 40 seconds in
+the worst case).
+
 If Telegram permanently rejects a reply (a 4xx error other than a rate
 limit, such as a blocked bot or a missing chat), that update is skipped
 with a warning so one message cannot stall all later ones. Rate limits,

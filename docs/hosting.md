@@ -188,7 +188,8 @@ If `deploy/sift-bot.service` itself changed, copy it again and run
 | `Set a valid TELEGRAM_BOT_TOKEN` or `SIFT_ALLOWED_USER_IDS must contain...` | Fix the value in `.env`; IDs are numbers separated by commas. Then restart. |
 | `start request repeated too quickly` / `failed` | The service gave up after 10 failed starts in 5 minutes. Fix the cause in the logs, then `systemctl reset-failed sift-bot && systemctl start sift-bot`. |
 | `.env: not found` | The service runs from `/home/sift/Sift-bot`; create `.env` there (step 5). |
-| Bot answers, but plain-language requests get "not available yet" | `ANTHROPIC_API_KEY` is missing or invalid, or the Claude request failed. Look for `Claude request failed (...)` in the logs. |
+| `Claude rejected the API key or model (401)` (or 403, 404) | The key in `.env` is wrong or revoked, or `SIFT_CLAUDE_MODEL` names a model your account can't use. Plain-language commands stay off until you fix `.env` and restart. |
+| Bot answers, but plain-language requests get "not available yet" | `ANTHROPIC_API_KEY` is missing, a tester sent more than 5 plain-language messages in a minute, or a Claude request failed. Look for `Claude request failed (...)` in the logs. |
 
 To remove a webhook without saving the token in your shell history:
 
