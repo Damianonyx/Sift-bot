@@ -1,0 +1,55 @@
+# systemd service for running Sift on a Linux VPS.
+# Setup steps: docs/hosting.md
+#
+# Install:  sudo cp deploy/sift-bot.service /etc/systemd/system/
+#           sudo systemctl daemon-reload
+#           sudo systemctl enable --now sift-bot
+# Logs:     journalctl -u sift-bot -f
+
+[Unit]
+Description=Sift Telegram bot
+Wants=network-online.target
+After=network-online.target
+# Stop retrying after 10 failed starts in 5 minutes (for example a revoked
+# token, or a second copy of the bot running elsewhere). Fix the cause, then
+# run: sudo systemctl reset-failed sift-bot && sudo systemctl start sift-bot
+StartLimitIntervalSec=300
+StartLimitBurst=10
+
+[Service]
+Type=simple
+User=sift
+Group=sift
+WorkingDirectory=/home/sift/Sift-bot
+# Secrets stay in /home/sift/Sift-bot/.env (chmod 600), never in this file.
+# --env-file (not -if-exists) so a missing .env fails loudly.
+ExecStart=/usr/bin/node --env-file=.env src/index.js
+Restart=on-failure
+RestartSec=10
+# The bot finishes its current Telegram request and exits on SIGTERM.
+TimeoutStopSec=40
+
+# Writable data directory for saved state (/var/lib/sift-bot). Unused by the
+# welcome bot; used by later versions that keep SQLite data in SIFT_DATA_DIR.
+# This setting overrides any SIFT_DATA_DIR in .env.
+StateDirectory=sift-bot
+StateDirectoryMode=0700
+Environment=SIFT_DATA_DIR=/var/lib/sift-bot
+
+# Hardening: the bot only needs outbound HTTPS and its data directory.
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+# AF_NETLINK lets glibc's DNS lookups check which address families exist.
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX AF_NETLINK
+
+[Install]
+WantedBy=multi-user.target

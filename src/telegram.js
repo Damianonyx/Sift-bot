@@ -8,6 +8,15 @@ export class TelegramError extends Error {
   }
 }
 
+// A reply Telegram rejected for a reason a retry cannot fix (bad request,
+// blocked bot, missing chat). Skipping it stops one update from stalling all
+// later ones. 401/404/409 mean the bot itself is misconfigured and must stop
+// the process; 429 is a rate limit; 5xx and network errors are transient.
+export function isPermanentReplyError(error) {
+  return error instanceof TelegramError && Number.isInteger(error.code) &&
+    error.code >= 400 && error.code < 500 && ![401, 404, 409, 429].includes(error.code);
+}
+
 export function createTelegram(token, { fetchImpl = fetch } = {}) {
   return async function call(method, body = {}, signal) {
     if (!['getMe', 'getWebhookInfo', 'getUpdates', 'sendMessage'].includes(method)) {

@@ -1,6 +1,7 @@
-import { setTimeout as delay } from 'node:timers/promises';
-import { readConfig, replyFor, verifyBot } from './bot.js';
-import { createTelegram, TelegramError } from './telegram.js';
+import { readConfig, respond, verifyBot } from './bot.js';
+import { createInterpreter, readInterpreterConfig } from './interpret.js';
+import { runPolling } from './polling.js';
+import { createTelegram } from './telegram.js';
 
 const shutdown = new AbortController();
 for (const event of ['SIGINT', 'SIGTERM']) {
@@ -9,6 +10,8 @@ for (const event of ['SIGINT', 'SIGTERM']) {
 
 async function main() {
   const { token, allowedUserIds } = readConfig(process.env);
+  const interpreterConfig = readInterpreterConfig(process.env);
+  const interpreter = interpreterConfig ? createInterpreter(interpreterConfig) : null;
   const call = createTelegram(token);
   const signal = shutdown.signal;
   const identity = await call('getMe', {}, signal);
@@ -16,37 +19,15 @@ async function main() {
   verifyBot(identity, webhook);
   console.log('Sift welcome bot is running. Discovery and monitoring are not connected.');
   if (allowedUserIds.size === 0) console.log('No testers configured. Only /id lookup is available.');
+  console.log(interpreter
+    ? `Plain-language commands from testers are interpreted by Claude (${interpreterConfig.model}).`
+    : 'Plain-language commands are off. Set ANTHROPIC_API_KEY to enable them.');
 
-  // In-memory offset is enough for this stateless greeting milestone.
-  // Persistent processing/delivery records belong to the monitoring milestone.
-  let offset = 0;
-  while (!signal.aborted) {
-    try {
-      const updates = await call('getUpdates', { offset, timeout: 25, allowed_updates: ['message'] }, signal);
-      if (!Array.isArray(updates)) throw new TelegramError('INVALID_RESPONSE');
-      for (const update of updates) {
-        if (signal.aborted) return;
-        if (!Number.isSafeInteger(update?.update_id)) throw new TelegramError('INVALID_RESPONSE');
-        const reply = replyFor(update, allowedUserIds);
-        if (reply) {
-          try {
-            await call('sendMessage', reply, signal);
-          } catch (error) {
-            if (!(error instanceof TelegramError) || error.code !== 403) throw error;
-            // The user blocked the bot or chat access was removed. Skip this reply.
-            console.warn('Telegram denied a reply (403); the update was skipped.');
-          }
-        }
-        offset = update.update_id + 1;
-      }
-    } catch (error) {
-      if (signal.aborted) return;
-      if (error instanceof TelegramError && [401, 404, 409].includes(error.code)) throw error;
-      console.warn(error instanceof TelegramError ? error.message : 'Polling failed; retrying without logging request data.');
-      const seconds = error instanceof TelegramError ? error.retryAfter : 5;
-      await delay(seconds * 1000, undefined, { signal });
-    }
-  }
+  await runPolling({
+    call,
+    signal,
+    handleUpdate: (update) => respond(update, allowedUserIds, interpreter, signal),
+  });
 }
 
 main().catch((error) => {
