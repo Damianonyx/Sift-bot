@@ -203,10 +203,11 @@ Enter. The reply should contain `"ok":true`.
 ## Saved data and backups
 
 The service gives the bot one writable folder, `/var/lib/sift-bot`, and
-sets `SIFT_DATA_DIR` to it (overriding any value in `.env`). The current
-welcome bot saves nothing there. Later versions that keep SQLite data
-will use it. Once they do, back that folder up, for example with your
-provider's snapshot feature.
+sets `SIFT_DATA_DIR` to it (overriding any value in `.env`). The bot
+keeps its SQLite database there: each tester's approved criteria and
+the Telegram update offset. Back that folder up, for example with your
+provider's snapshot feature; losing it loses saved criteria but no
+credentials.
 
 ## Security notes
 

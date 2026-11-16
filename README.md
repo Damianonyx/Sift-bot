@@ -15,29 +15,38 @@ Bot: [@SiftAgentbot](https://t.me/SiftAgentbot)
 
 ## Current status
 
-Sift is at the beginning of development. This repository now contains
-the first welcome-bot implementation for the existing @SiftAgentbot:
+Sift is early in development. This repository now implements the
+criteria milestone for the existing @SiftAgentbot:
 
-- `/start`: a welcome message for approved testers.
-- `/help`: the commands available in this version.
-- `/status`: an honest summary of what is and is not connected.
-- `/id`: shows the sender their own Telegram user ID in a private chat.
-- Plain-language commands (optional): when `ANTHROPIC_API_KEY` is set,
-  Claude maps an approved tester's free text, such as "what works
-  today?", to one of the commands above. Sift still sends its fixed
-  reply for that command; Claude never writes the reply text.
+- `/start`, `/help`, `/status`, `/id`: welcome, commands, an honest
+  summary of what is and is not connected, and the sender's own ID.
+- `/criteria <description>` (needs `ANTHROPIC_API_KEY`): Claude turns a
+  tester's plain words into typed screening rules. Every rule must
+  quote its number from the tester's own message; anything vague,
+  unsupported or embedded as an instruction is listed back as
+  "unresolved" and never activated. Claude proposes; it never decides.
+- `/approve` and `/discard`: nothing takes effect without explicit
+  approval. Approved criteria are versioned and stored in SQLite, so
+  they survive restarts.
+- `/check <address>`: evaluates a Solana token against the tester's
+  approved rules using live DexScreener data. Replies show each rule's
+  result with the measured value, its provenance and timestamp, the
+  selected pool (best liquidity, with DEX and link), and the rule that
+  failed. A value the data source does not provide is `unknown`, and an
+  unknown can never satisfy a required rule.
+- Plain-language commands (optional): free text such as "what works
+  today?" maps to one of the fixed commands. Sift always sends its own
+  fixed reply text; Claude never writes replies.
 
-All nine offline tests passed locally and in the owner's Codespace.
-On 2026-10-11, owner-provided screenshots confirmed live `/id`,
-`/start`, `/help`, and `/status` replies from @SiftAgentbot on mobile.
-The status reply correctly identifies scanning and monitoring as unavailable.
-The bot was run temporarily in GitHub Codespaces using Codespaces
-secrets. Continuous hosting has not been configured.
+All 44 offline tests pass. The full flow (describe, approve, restart,
+check) was exercised end to end against the real DexScreener API with a
+scripted Claude stand-in; it has not yet been run against the live
+@SiftAgentbot or with a real Anthropic key, and continuous hosting has
+not been configured. On 2026-10-11, owner screenshots verified the
+earlier welcome-bot commands live on mobile.
 
-Discovery, AI screening, token checks, monitoring, and durable
-user/agent state are not implemented. The product features below
-remain planned. The first welcome-response milestone is verified;
-the remaining live acceptance checks below still need confirmation.
+Scheduled discovery, alerts, and follow-up monitoring are not
+implemented; those product features below remain planned.
 
 ## How Sift will work
 
@@ -116,9 +125,11 @@ Example strategies will not become silent defaults.
 ## Development roadmap
 
 - [x] Basic Telegram response and configured private tester access.
-- [ ] Durable user settings and agent state.
-- [ ] Real token-data checks and evidence validation.
-- [ ] Conversational setup and rule approval.
+- [x] Durable user settings and agent state (SQLite; criteria and the
+  update offset survive restarts).
+- [x] Real token-data checks and evidence validation (on-demand
+  `/check` via DexScreener; scheduled scanning still pending).
+- [x] Conversational setup and rule approval (`/criteria` → `/approve`).
 - [ ] One complete discovery-to-alert flow.
 - [ ] Follow-up monitoring and event classification.
 - [ ] Reliability testing and invited-user validation.
@@ -165,9 +176,12 @@ GitHub issue, a chat message, or a public repository file editor.
    Additional testers can be added as comma-separated IDs.
 6. Send `/start`, `/help`, and `/status` from an allowed account.
 7. Optional: set `ANTHROPIC_API_KEY` to turn on plain-language commands
-   and restart. Send "what can you do?" from an allowed account; the
-   reply should be the `/help` text. `SIFT_CLAUDE_MODEL` overrides the
-   default model, `claude-opus-5-5`.
+   and `/criteria` setup, then restart. Send "what can you do?" from an
+   allowed account; the reply should be the `/help` text. Then try
+   `/criteria at least 10k liquidity`, `/approve`, and `/check` with a
+   Solana token address. `SIFT_CLAUDE_MODEL` overrides the default
+   model, `claude-opus-5-5`. `SIFT_DATA_DIR` moves the SQLite state
+   (default `.sift/`).
 
 The process verifies that the token belongs to @SiftAgentbot and
 refuses to start polling if a webhook is configured. It never deletes
@@ -187,6 +201,11 @@ have not yet been confirmed in live Telegram testing.
 - [x] `/help` lists the supported commands.
 - [x] `/status` says that discovery, AI, data, and monitoring are not connected.
 - [ ] Graceful process shutdown and restart with unchanged configuration.
+- [ ] `/criteria` with a real Anthropic key proposes only explicitly
+  stated rules and lists the rest as unresolved.
+- [ ] `/approve` activates the proposal, and criteria survive a restart.
+- [ ] `/check` on a real token reports live values with provenance, and
+  an unknown value never passes a required rule.
 
 ### Testing in GitHub Codespaces
 
@@ -211,36 +230,39 @@ system service: [docs/hosting.md](docs/hosting.md) walks through the
 setup, and `deploy/sift-bot.service` is the service file. The server
 provider's fee is a separate decision for the owner.
 
-There is no database, scanning job, saved strategy, or alert history.
+There is no scanning job and no alert history. Saved criteria and the
+Telegram update offset live in a SQLite file under `SIFT_DATA_DIR`
+(default `.sift/`, or `/var/lib/sift-bot` under the systemd service).
 Tester IDs are read from configuration at startup. Message bodies and
 bot tokens are not logged by this application. Telegram still handles
 messages under its own service policies.
 
-When plain-language commands are on, the text of an approved tester's
-non-command message (up to 500 characters) is sent to Anthropic's API
-to choose a command, and is handled under Anthropic's API policies.
-Slash commands and messages from unlisted accounts are never sent.
-Each such message is one paid API request. If Claude is unavailable,
-declines, or answers outside the fixed command list, Sift sends its
-usual "not available yet" reply instead.
+When Claude features are on, two kinds of tester text reach Anthropic's
+API under its policies: a non-command message (up to 500 characters) to
+choose a command, and the description after `/criteria` (up to 1,000
+characters) to propose rules. `/check` sends only the validated token
+address to DexScreener, under DexScreener's policies. Slash-command
+text and messages from unlisted accounts are never sent anywhere.
 
-Each tester can make up to 5 such requests a minute; further messages
-get the fixed replies without calling Claude. If Anthropic rejects the
-API key or model, plain-language commands turn off until the next
-restart, and `/status` says so. Updates are answered one at a time, so a
-slow Claude request delays later replies (by up to about 40 seconds in
-the worst case).
+Each Claude call is one paid API request. Per tester and minute, 5
+routing and 3 criteria requests are allowed; beyond that, and whenever
+Claude is unavailable, declines, or returns anything that fails
+validation, Sift answers with fixed text and changes nothing. If
+Anthropic rejects the API key or model, Claude features turn off until
+the next restart, and `/status` says so. Updates are answered one at a
+time, so a slow Claude or DexScreener request delays later replies (by
+up to about 40 seconds in the worst case).
 
 If Telegram permanently rejects a reply (a 4xx error other than a rate
 limit, such as a blocked bot or a missing chat), that update is skipped
 with a warning so one message cannot stall all later ones. Rate limits,
 server errors, and network failures are retried.
 
-Update offsets are held in memory. A restart or an uncertain network
-delivery can repeat a greeting. Persistent processing and delivery
-records are required before adding discovery or monitoring alerts.
-Telegram may retain pending updates for up to 24 hours; earlier
-messages can be processed on first startup.
+The update offset is saved after each handled message, so a restart
+resumes where the bot stopped. Delivery is at-least-once: a crash in
+the moment between sending a reply and saving the offset can repeat
+that one reply. Telegram may retain pending updates for up to 24
+hours; messages sent while the bot is down are answered on startup.
 
 Credentials must remain outside source control, chat, and logs.
 
