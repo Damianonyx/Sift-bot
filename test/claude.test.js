@@ -83,6 +83,29 @@ test('criteria interpretation sends the schema and returns a validated proposal'
   assert.deepEqual(schema.required, ['rules', 'unresolved']);
 });
 
+test('schemas sent to the API use only keywords structured outputs support', async () => {
+  // The API rejects numeric, string-length and array constraints with a 400,
+  // which would silently turn every /criteria call into a failure.
+  const UNSUPPORTED = ['minimum', 'maximum', 'exclusiveMinimum', 'exclusiveMaximum', 'multipleOf',
+    'minLength', 'maxLength', 'pattern', 'minItems', 'maxItems', 'uniqueItems', 'minProperties', 'maxProperties'];
+  const walk = (node, path = 'schema') => {
+    if (!node || typeof node !== 'object') return;
+    for (const key of UNSUPPORTED) assert.ok(!(key in node), `${path} uses unsupported "${key}"`);
+    if (node.type === 'object') assert.equal(node.additionalProperties, false, `${path} must set additionalProperties: false`);
+    for (const [key, value] of Object.entries(node.properties ?? {})) walk(value, `${path}.${key}`);
+    if (node.items) walk(node.items, `${path}[]`);
+  };
+  const { client, calls } = fakeClient((_n, params) => answer(params.system.startsWith('You route') ? { command: 'help' } : PROPOSAL));
+  const claude = createClaude({ client, log: silent });
+  await claude.routeCommand('hi', { userId: 42 });
+  await claude.proposeCriteria(DESCRIPTION, { userId: 42 });
+  assert.equal(calls.length, 2);
+  for (const { params } of calls) {
+    assert.equal(params.output_config.format.type, 'json_schema');
+    walk(params.output_config.format.schema);
+  }
+});
+
 test('a proposal whose evidence is not quoted from the message is rejected whole', () => {
   assert.deepEqual(validateProposal(PROPOSAL, DESCRIPTION), PROPOSAL);
   const invented = { rules: [{ ...PROPOSAL.rules[0], evidence: 'threshold I made up' }], unresolved: [] };
