@@ -47,12 +47,13 @@ test('draft lifecycle: propose, approve bumps the version, discard clears', () =
 
 test('the alert ledger: one alert per tester and token, pending until sent, bounded attempts', () => {
   const store = openStore(':memory:');
+  for (const id of [42, 57]) { store.setDraft(id, proposal); store.approveDraft(id); }
   assert.equal(store.createAlert(42, 'TokenA', 'PoolA', 'alert text'), true);
   assert.equal(store.createAlert(42, 'TokenA', 'PoolB', 'same token, other pool'), false); // once per token
   assert.equal(store.createAlert(57, 'TokenA', 'PoolA', 'other tester'), true);
   // Pending alerts are only for testers whose scanning is on.
   assert.equal(store.pendingAlerts(EPOCH).length, 0);
-  for (const id of [42, 57]) { store.setDraft(id, proposal); store.approveDraft(id); store.setScanning(id, true); }
+  for (const id of [42, 57]) store.setScanning(id, true);
   let pending = store.pendingAlerts(EPOCH);
   assert.equal(pending.length, 2);
   assert.equal(pending[0].message, 'alert text');
@@ -61,13 +62,42 @@ test('the alert ledger: one alert per tester and token, pending until sent, boun
   assert.equal(store.pendingAlerts(new Date(Date.now() + 60_000).toISOString()).length, 0);
 
   store.recordAttempt(pending[0].id);
-  store.markSent(pending[0].id);
+  store.markSent(pending[0]);
   assert.deepEqual(store.pendingAlerts(EPOCH).map((a) => a.user_id), [57]);
-  store.setScanning(57, false);
-  assert.equal(store.pendingAlerts(EPOCH).length, 0); // /scan off empties the queue
-  store.setScanning(57, true);
   store.abandonAlert(pending[1].id);
   assert.equal(store.pendingAlerts(EPOCH).length, 0);
+  store.close();
+});
+
+test('stopping scanning or approving new criteria cancels undelivered alerts, never delivered ones', () => {
+  const store = openStore(':memory:');
+  store.setDraft(42, proposal); store.approveDraft(42); store.setScanning(42, true);
+  store.createAlert(42, 'Delivered', 'P', 'sent');
+  store.markSent(store.pendingAlerts(EPOCH)[0]);
+  store.createAlert(42, 'Queued', 'P', 'not yet sent');
+  assert.equal(store.alertPending(store.pendingAlerts(EPOCH)[0].id), true);
+
+  store.setScanning(42, false); // /scan off
+  store.setScanning(42, true);
+  assert.equal(store.pendingAlerts(EPOCH).length, 0);
+  assert.equal(store.createAlert(42, 'Delivered', 'P', 'again'), false); // once per token holds
+  assert.equal(store.createAlert(42, 'Queued', 'P', 'can match again'), true); // cancelled, so it may alert again
+
+  store.setDraft(42, proposal); store.approveDraft(42); // new criteria version
+  assert.equal(store.pendingAlerts(EPOCH).length, 0);
+
+  // Cancelled while in flight: it still reached the tester, so it is recorded.
+  store.createAlert(42, 'InFlight', 'P', 'being sent');
+  const inFlight = store.pendingAlerts(EPOCH)[0];
+  store.setScanning(42, false);
+  assert.equal(store.alertPending(inFlight.id), false);
+  store.markSent(inFlight);
+  assert.equal(store.createAlert(42, 'InFlight', 'P', 'again'), false);
+  store.close();
+});
+
+test('seen pools are remembered and pruned by age', () => {
+  const store = openStore(':memory:');
 
   store.markSeen('PoolA', '2026-11-17T08:00:00.000Z');
   assert.equal(store.wasSeen('PoolA'), true);

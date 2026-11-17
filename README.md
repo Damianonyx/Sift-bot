@@ -308,9 +308,12 @@ Alerts go through a ledger: each is recorded before sending, retried
 on transient failures up to 5 times with sends paced about a second
 apart, dropped if still undelivered after 30 minutes, and abandoned
 (with that tester's scanning turned off) if Telegram rejects it
-permanently. `/scan off` also cancels queued alerts. A tester is
-alerted at most once per token, and that survives criteria changes: a
-token alerted under v1 does not alert again under v2. Alerts only fire
+permanently. `/scan off` and approving new criteria both cancel alerts
+still queued, even mid-burst, so nothing is sent that the tester's
+current settings would not send; a cancelled token can still alert
+later if it matches the current rules. A tester is alerted at most once
+per token, and that survives criteria changes: a token alerted under v1
+does not alert again under v2. Alerts only fire
 while the process runs; launches during downtime are missed, not
 backfilled.
 

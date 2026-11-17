@@ -299,3 +299,40 @@ test('a rate-limited discovery source is paused with exponential backoff, then r
   await at(183_000);
   assert.equal(calls, 4);                     // no pause after a success
 });
+
+test('/scan off during a burst cancels the alerts not yet sent; they can match again later', async () => {
+  const { state, cycle, store, clock } = world();
+  state.pools = [launched(1, START), launched(2, START)];
+  state.data.set(token(1), dexscreener(1, START, { marketCap: 40_000 }));
+  state.data.set(token(2), dexscreener(2, START, { marketCap: 50_000 }));
+  // The tester sends /scan off right after the first alert arrives.
+  await cycle({ send: async (message) => { state.sent.push(message); store.setScanning(42, false); } });
+  assert.equal(state.sent.length, 1);
+  // Back on a minute later: the cancelled token still matches on the watch
+  // list, so it alerts now; the delivered one never repeats.
+  store.setScanning(42, true);
+  clock.now = START + MIN;
+  state.pools = [];
+  await cycle();
+  assert.equal(state.sent.length, 2);
+  assert.notEqual(state.sent[0].text.match(/Token: (\S+)/)[1], state.sent[1].text.match(/Token: (\S+)/)[1]);
+});
+
+test('approving new criteria cancels alerts queued under the old version', async () => {
+  const { state, cycle, store, clock } = world();
+  state.pools = [launched(1, START)];
+  state.data.set(token(1), dexscreener(1, START, { marketCap: 400_000 }));
+  await cycle({ send: async () => { throw new TelegramError(500); } }); // matched v1 ($500k ceiling), delivery failed
+  store.setDraft(42, { rules: [rule({ field: 'marketCapUsd', op: 'lte', value: 100_000, evidence: 'mcap under 100k' })], unresolved: [] });
+  store.approveDraft(42); // v2 is stricter
+  clock.now = START + MIN;
+  state.pools = [];
+  await cycle();
+  assert.equal(state.sent.length, 0); // the v1 match is not sent under v2
+  // A token that matches v2 later is alerted under v2.
+  clock.now = START + 2 * MIN;
+  state.data.set(token(1), dexscreener(1, clock.now, { marketCap: 90_000 }));
+  await cycle();
+  assert.equal(state.sent.length, 1);
+  assert.match(state.sent[0].text, /matches your criteria v2/);
+});

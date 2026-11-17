@@ -78,13 +78,20 @@ export function openStore(location) {
       values (?, ?, ?, ?, ?)`),
     // Only for testers whose scanning is on, so /scan off also stops alerts
     // that were already queued; stale alerts are never delivered late.
-    pendingAlerts: db.prepare(`select a.id, a.user_id, a.token_address, a.message from alerts a
+    pendingAlerts: db.prepare(`select a.id, a.user_id, a.token_address, a.pool_address, a.message from alerts a
       join agents g on g.user_id = a.user_id
       where a.sent_at is null and a.attempts < ? and g.scanning = 1 and a.created_at >= ?
       order by a.id limit 20`),
     recordAttempt: db.prepare('update alerts set attempts = attempts + 1 where id = ?'),
     markSent: db.prepare('update alerts set sent_at = ? where id = ?'),
+    recordDelivered: db.prepare(`insert or ignore into alerts
+      (user_id, token_address, pool_address, message, created_at, attempts, sent_at) values (?, ?, ?, ?, ?, 1, ?)`),
     abandonAlert: db.prepare('update alerts set attempts = ? where id = ?'),
+    // Undelivered alerts are cancelled when a tester stops scanning or
+    // approves new criteria, so nothing is sent that their current settings
+    // would not send. Delivered alerts stay: they keep "once per token".
+    cancelPending: db.prepare('delete from alerts where user_id = ? and sent_at is null'),
+    isPending: db.prepare('select 1 from alerts where id = ? and sent_at is null'),
     addCandidate: db.prepare(`insert or ignore into candidates
       (token_address, pool_address, name, dex_id, discovered_at, expires_at, last_checked) values (?, ?, ?, ?, ?, ?, ?)`),
     dueCandidates: db.prepare(`select token_address, pool_address, name, dex_id, discovered_at from candidates
@@ -121,10 +128,13 @@ export function openStore(location) {
     },
     approveDraft(userId) {
       const row = statements.approve.get(nowIso(), userId);
-      return row ? { approved: parse(row.approved), version: row.version } : null;
+      if (!row) return null;
+      statements.cancelPending.run(userId);
+      return { approved: parse(row.approved), version: row.version };
     },
     // Only testers with approved criteria can scan; returns false otherwise.
     setScanning(userId, on) {
+      if (!on) statements.cancelPending.run(userId);
       return statements.setScanning.run(on ? 1 : 0, nowIso(), userId).changes > 0;
     },
     scanningAgents() {
@@ -141,8 +151,17 @@ export function openStore(location) {
     },
     pendingAlerts(sinceIso) { return statements.pendingAlerts.all(MAX_ALERT_ATTEMPTS, sinceIso); },
     recordAttempt(id) { statements.recordAttempt.run(id); },
-    markSent(id) { statements.markSent.run(nowIso(), id); },
+    // Takes the alert row from pendingAlerts. If the alert was cancelled while
+    // it was being sent, it still reached the tester, so it is recorded as
+    // delivered again: that keeps "once per token" true.
+    markSent(alert) {
+      const at = nowIso();
+      if (statements.markSent.run(at, alert.id).changes === 0) {
+        statements.recordDelivered.run(alert.user_id, alert.token_address, alert.pool_address ?? '', alert.message, at, at);
+      }
+    },
     abandonAlert(id) { statements.abandonAlert.run(MAX_ALERT_ATTEMPTS, id); },
+    alertPending(id) { return statements.isPending.get(id) !== undefined; },
     setLastScan(info) { statements.setKv.run('lastScan', JSON.stringify(info)); },
     getLastScan() { return parse(statements.getKv.get('lastScan')?.value); },
     // Young tokens the scanner keeps re-checking until they match or expire.

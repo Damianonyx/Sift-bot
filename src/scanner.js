@@ -167,11 +167,14 @@ async function deliverPending({ store, send, log, signal, pace, allowedUserIds, 
     if (!first) await pace(ALERT_PACE_MS, signal);
     first = false;
     if (signal.aborted) return;
+    // The batch was read before sending began: the tester may have sent
+    // /scan off or approved new criteria since, and both cancel queued alerts.
+    if (!store.alertPending(alert.id)) continue;
     // Count the attempt first, so a crash mid-send can never retry forever.
     store.recordAttempt(alert.id);
     try {
       await send(telegramMessage(alert.user_id, alert.message, [alert.token_address]), signal);
-      store.markSent(alert.id);
+      store.markSent(alert);
     } catch (error) {
       if (signal.aborted) return;
       if (isPermanentReplyError(error)) {
