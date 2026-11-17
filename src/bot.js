@@ -6,7 +6,7 @@ export const BOT_USERNAME = 'SiftAgentbot';
 export const WELCOME = [
   'Sift — Your personal agent in the trenches.',
   'Your criteria. Your watchlist. Less noise, more context.',
-  'Describe screening rules in plain words with /criteria, approve them, then test any Solana token with /check. Scheduled discovery and alerts are not live yet.',
+  'Describe screening rules in plain words with /criteria and approve them. Then /check any Solana token on demand, or /scan on for automatic alerts whenever a brand-new pool matches your rules.',
   'Use /help for commands or /status to see what is available.',
 ].join('\n\n');
 
@@ -22,25 +22,37 @@ const helpText = (aiCommands) => [
     '/approve — activate the proposed rules',
     '/discard — drop the proposed rules',
     '/check <token address> — evaluate a Solana token against your rules',
+    '/scan on | off — automatic alerts when a brand-new pool matches your rules',
   ].join('\n'),
   ...(aiCommands ? ['You can also ask in plain words, such as "what works today?"'] : []),
   'Rules only compare live market numbers. Scheduled scanning, alerts and monitoring will arrive in later stages. No wallet connection is ever needed.',
 ].join('\n\n');
 
-const statusText = (aiCommands, agent) => [
+function scanLine(agent, lastScan) {
+  if (!agent?.scanning) return 'Scanning: off (/scan on to start)';
+  if (!lastScan) return 'Scanning: on (no check has run yet)';
+  const at = `${new Date(lastScan.at).toISOString().slice(11, 16)} UTC`;
+  return lastScan.ok
+    ? `Scanning: on (last check ${at}: ${lastScan.pools} new pools, ${lastScan.newMatches} new match${lastScan.newMatches === 1 ? '' : 'es'} overall)`
+    : `Scanning: on, but the discovery source was unavailable at ${at}; retrying`;
+}
+
+const statusText = (aiCommands, agent, lastScan) => [
   'Sift status',
   [
     'Telegram replies: available',
     `Plain-language commands: ${aiCommands ? 'available (Claude)' : 'off'}`,
     `Saved criteria: ${agent?.approved ? `v${agent.version} (${agent.approved.rules.length} rule${agent.approved.rules.length === 1 ? '' : 's'})` : 'none saved'}${agent?.draft ? ' — a proposal is waiting for /approve' : ''}`,
     'Token checks: on demand via /check (DexScreener)',
-    'Scheduled discovery: not connected',
-    'Monitoring and alerts: not connected',
+    `${scanLine(agent, lastScan)} — source: GeckoTerminal newest pools`,
+    'Follow-up monitoring of chosen tokens: not connected',
   ].join('\n'),
-  'No scans or alerts are running. Checks happen only when you send /check.',
+  agent?.scanning
+    ? 'Alerts fire only while the bot process runs, at most once per token.'
+    : 'No scans or alerts are running for you. /check works on demand.',
 ].join('\n\n');
 
-const unsupportedText = 'This version supports /start, /help, /status, /id, /criteria, /approve, /discard and /check <address>. Scheduled scanning and alerts are not available yet.';
+const unsupportedText = 'This version supports /start, /help, /status, /id, /criteria, /approve, /discard, /check <address> and /scan on|off. Follow-up monitoring of chosen tokens is not available yet.';
 
 const CRITERIA_HELP = [
   'No saved screening rules yet.',
@@ -115,6 +127,29 @@ async function criteriaCommand(args, userId, { claude, store, signal }) {
   return formatProposal(proposal);
 }
 
+function scanCommand(args, userId, { store }) {
+  const agent = store.getAgent(userId);
+  const lastScan = store.getLastScan();
+  if (args === 'on') {
+    if (!agent?.approved?.rules?.length) {
+      return 'Scanning needs active criteria first. Describe rules with /criteria <description>, then /approve them.';
+    }
+    store.setScanning(userId, true);
+    const needsData = agent.approved.rules.filter((r) => r.severity === 'require' && (r.field === 'marketCapUsd' || r.field === 'fdvUsd'));
+    return [
+      `Scanning is on with criteria v${agent.version}. New Solana pools are checked about once a minute (GeckoTerminal), and you get at most one alert per token.`,
+      ...(needsData.length ? ['Note: brand-new pools usually have no market cap or FDV data yet. Your required rules on those fields keep such pools at "not confirmed", so alerts may be rare until that data exists.'] : []),
+      'Alerts run only while the bot process is running. /scan off stops them.',
+    ].join('\n\n');
+  }
+  if (args === 'off') {
+    const wasOn = agent?.scanning;
+    if (wasOn) store.setScanning(userId, false);
+    return wasOn ? 'Scanning stopped. Your saved criteria are unchanged.' : 'Scanning is already off.';
+  }
+  return [scanLine(agent, lastScan), 'Use /scan on or /scan off.'].join('\n');
+}
+
 async function checkCommand(args, userId, { store, market, signal }) {
   const agent = store.getAgent(userId);
   if (!agent?.approved?.rules?.length) {
@@ -160,7 +195,7 @@ export async function respond(update, ctx) {
   switch (command) {
     case 'start': return reply(WELCOME);
     case 'help': return reply(helpText(Boolean(claude?.available)));
-    case 'status': return reply(statusText(Boolean(claude?.available), store?.getAgent(userId)));
+    case 'status': return reply(statusText(Boolean(claude?.available), store?.getAgent(userId), store?.getLastScan()));
     case 'criteria': return reply(await criteriaCommand(parsed?.args ?? '', userId, ctx));
     case 'approve': {
       const result = store.approveDraft(userId);
@@ -169,6 +204,7 @@ export async function respond(update, ctx) {
     case 'discard':
       return reply(store.clearDraft(userId) ? 'Proposal discarded. Your previously approved rules, if any, are unchanged.' : 'No proposal to discard.');
     case 'check': return reply(await checkCommand(parsed?.args ?? '', userId, ctx));
+    case 'scan': return reply(scanCommand((parsed?.args ?? '').toLowerCase(), userId, ctx));
     default: return reply(unsupportedText);
   }
 }

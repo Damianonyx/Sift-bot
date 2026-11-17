@@ -43,6 +43,28 @@ test('draft lifecycle: propose, approve bumps the version, discard clears', () =
   store.close();
 });
 
+test('the alert ledger: one alert per tester and token, pending until sent, bounded attempts', () => {
+  const store = openStore(':memory:');
+  assert.equal(store.createAlert(42, 'TokenA', 'PoolA', 'alert text'), true);
+  assert.equal(store.createAlert(42, 'TokenA', 'PoolB', 'same token, other pool'), false); // once per token
+  assert.equal(store.createAlert(57, 'TokenA', 'PoolA', 'other tester'), true);
+  let pending = store.pendingAlerts();
+  assert.equal(pending.length, 2);
+  assert.equal(pending[0].message, 'alert text');
+
+  store.recordAttempt(pending[0].id);
+  store.markSent(pending[0].id);
+  assert.deepEqual(store.pendingAlerts().map((a) => a.user_id), [57]);
+  store.abandonAlert(pending[1].id);
+  assert.equal(store.pendingAlerts().length, 0);
+
+  store.markSeen('PoolA', '2026-11-17T08:00:00.000Z');
+  assert.equal(store.wasSeen('PoolA'), true);
+  store.pruneSeen('2026-11-18T00:00:00.000Z');
+  assert.equal(store.wasSeen('PoolA'), false);
+  store.close();
+});
+
 test('criteria and the offset survive closing and reopening the database', () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'sift-store-'));
   try {
@@ -54,7 +76,7 @@ test('criteria and the offset survive closing and reopening the database', () =>
 
     const reopened = openStore(dir);
     assert.equal(reopened.getOffset(), 123);
-    assert.deepEqual(reopened.getAgent(42), { draft: null, approved: proposal, version: 1 });
+    assert.deepEqual(reopened.getAgent(42), { draft: null, approved: proposal, version: 1, scanning: false });
     reopened.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

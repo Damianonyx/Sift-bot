@@ -34,19 +34,28 @@ criteria milestone for the existing @SiftAgentbot:
   selected pool (best liquidity, with DEX and link), and the rule that
   failed. A value the data source does not provide is `unknown`, and an
   unknown can never satisfy a required rule.
+- `/scan on` and `/scan off`: automatic discovery. About once a minute
+  the bot reads GeckoTerminal's newest Solana pools and alerts each
+  scanning tester whose approved rules a brand-new pool satisfies —
+  with the same evidence format, at most one alert per token, through a
+  persistent delivery ledger with bounded retries and paced sends.
+  `/scan` and `/status` show the last check, and whether the data
+  source is down. A pool whose required data is unknown never alerts.
 - Plain-language commands (optional): free text such as "what works
   today?" maps to one of the fixed commands. Sift always sends its own
   fixed reply text; Claude never writes replies.
 
-All 44 offline tests pass. The full flow (describe, approve, restart,
-check) was exercised end to end against the real DexScreener API with a
-scripted Claude stand-in; it has not yet been run against the live
-@SiftAgentbot or with a real Anthropic key, and continuous hosting has
-not been configured. On 2026-10-11, owner screenshots verified the
-earlier welcome-bot commands live on mobile.
+All 57 offline tests pass. The full flows were exercised end to end
+with a scripted Claude stand-in against the real APIs: describe,
+approve, restart, `/check` (DexScreener), and `/scan on` followed by
+real alerts for pools created minutes earlier (GeckoTerminal). It has
+not yet been run against the live @SiftAgentbot or with a real
+Anthropic key, and continuous hosting has not been configured. On
+2026-10-11, owner screenshots verified the earlier welcome-bot
+commands live on mobile.
 
-Scheduled discovery, alerts, and follow-up monitoring are not
-implemented; those product features below remain planned.
+Follow-up monitoring of chosen tokens is not implemented; that product
+feature below remains planned.
 
 ## How Sift will work
 
@@ -130,7 +139,10 @@ Example strategies will not become silent defaults.
 - [x] Real token-data checks and evidence validation (on-demand
   `/check` via DexScreener; scheduled scanning still pending).
 - [x] Conversational setup and rule approval (`/criteria` → `/approve`).
-- [ ] One complete discovery-to-alert flow.
+- [x] One complete discovery-to-alert flow (`/scan on`: GeckoTerminal's
+  newest pools, evaluated against approved rules, alerted with
+  evidence; per-token dedup and a persistent delivery ledger).
+- [ ] Alert follow-up controls (monitor, dismiss, mute buttons).
 - [ ] Follow-up monitoring and event classification.
 - [ ] Reliability testing and invited-user validation.
 
@@ -206,6 +218,8 @@ have not yet been confirmed in live Telegram testing.
 - [ ] `/approve` activates the proposal, and criteria survive a restart.
 - [ ] `/check` on a real token reports live values with provenance, and
   an unknown value never passes a required rule.
+- [ ] `/scan on` delivers an alert for a genuinely new pool on the live
+  bot, exactly once per token, and `/scan off` stops alerts.
 
 ### Testing in GitHub Codespaces
 
@@ -263,6 +277,19 @@ resumes where the bot stopped. Delivery is at-least-once: a crash in
 the moment between sending a reply and saving the offset can repeat
 that one reply. Telegram may retain pending updates for up to 24
 hours; messages sent while the bot is down are answered on startup.
+
+Scanning contacts GeckoTerminal only while at least one tester has
+`/scan on`, and the request carries no tester data. Alerts go through
+a ledger: each is recorded before sending, retried on transient
+failures up to 5 times with sends paced about a second apart, and
+abandoned (with that tester's scanning turned off) if Telegram rejects
+it permanently. A tester is alerted at most once per token, and that
+dedup survives criteria changes: a token alerted under v1 does not
+alert again under v2. Alerts only fire while the process runs; pools
+that appear and disappear during downtime are missed, not backfilled.
+Brand-new pools usually lack market cap and FDV data, so required
+rules on those fields rarely alert at pool age zero — by design,
+unknown data never passes.
 
 Credentials must remain outside source control, chat, and logs.
 

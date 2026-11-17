@@ -104,6 +104,23 @@ test('without Claude, /criteria explains itself and nothing is changed', async (
   assert.match(await text(ctx, '/help'), /off: needs ANTHROPIC_API_KEY/);
 });
 
+test('/scan needs approved criteria, warns about data-poor fields, and turns off cleanly', async () => {
+  const ctx = makeCtx();
+  assert.match(await text(ctx, '/scan on'), /needs active criteria first/);
+  await text(ctx, `/criteria ${DESCRIPTION}`);
+  await text(ctx, '/approve');
+  const on = await text(ctx, '/scan on');
+  assert.match(on, /Scanning is on with criteria v1/);
+  // The approved rules require market cap, which brand-new pools usually lack.
+  assert.match(on, /no market cap or FDV data yet/);
+  assert.match(await text(ctx, '/status'), /Scanning: on \(no check has run yet\)/);
+  ctx.store.setLastScan({ at: '2026-11-17T08:00:00.000Z', ok: true, pools: 20, newMatches: 1 });
+  assert.match(await text(ctx, '/scan'), /last check 08:00 UTC: 20 new pools, 1 new match overall/);
+  assert.match(await text(ctx, '/scan off'), /Scanning stopped/);
+  assert.match(await text(ctx, '/scan off'), /already off/);
+  assert.match(await text(ctx, '/status'), /Scanning: off/);
+});
+
 test('plain language still routes to fixed replies and criteria state shows in status', async () => {
   const ctx = makeCtx({ command: 'status' });
   const reply = await text(ctx, 'is anything live yet?');

@@ -88,6 +88,9 @@ export function formatSaved(agent) {
 
 const MARKS = { pass: '✓', fail: '✗', unknown: '?' };
 const time = (asOf) => (asOf ? `${new Date(asOf).toISOString().slice(11, 16)} UTC` : 'no timestamp');
+const checkLine = ({ rule, metric, outcome }) => outcome === 'unknown'
+  ? `${MARKS.unknown} ${ruleText(rule)} — unknown (not provided by the data source for this pool)`
+  : `${MARKS[outcome]} ${ruleText(rule)} — ${formatValue(rule.field, metric.value)} (${metric.source}, ${time(metric.asOf)})`;
 
 export function formatEvaluation({ verdict, checks }, { version, address, pool, checkedAt }) {
   const headers = {
@@ -95,16 +98,32 @@ export function formatEvaluation({ verdict, checks }, { version, address, pool, 
     fail: `Does NOT pass your criteria v${version}.`,
     unknown: `NOT CONFIRMED against criteria v${version}: required data is unknown.`,
   };
-  const line = ({ rule, metric, outcome }) => outcome === 'unknown'
-    ? `${MARKS.unknown} ${ruleText(rule)} — unknown (not provided by the data source for this pool)`
-    : `${MARKS[outcome]} ${ruleText(rule)} — ${formatValue(rule.field, metric.value)} (${metric.source}, ${time(metric.asOf)})`;
   const required = checks.filter((c) => c.rule.severity === 'require');
   const warnings = checks.filter((c) => c.rule.severity === 'warn');
   const lines = [headers[verdict], '', `Token: ${address}`,
     `Pool: ${pool.base}/${pool.quote} on ${pool.dexId} — best liquidity of ${pool.poolCount} Solana pool${pool.poolCount === 1 ? '' : 's'} via DexScreener`,
-    pool.url, '', ...required.map(line)];
-  if (warnings.length) lines.push('', 'Warning-only checks:', ...warnings.map(line));
+    pool.url, '', ...required.map(checkLine)];
+  if (warnings.length) lines.push('', 'Warning-only checks:', ...warnings.map(checkLine));
   lines.push('', `Checked ${checkedAt}. Unknown values never satisfy required rules.`,
     'Matching your rules does not make a token safe or profitable.');
+  return lines.join('\n');
+}
+
+// A discovery alert: a brand-new pool whose live values satisfied every
+// required rule. Unknown-verdict pools never alert, so an alert can only
+// carry known, timestamped values.
+export function formatAlert({ checks }, { version, pool, checkedAt }) {
+  const required = checks.filter((c) => c.rule.severity === 'require');
+  const warnings = checks.filter((c) => c.rule.severity === 'warn');
+  const lines = [
+    `Sift alert: a new pool matches your criteria v${version}.`, '',
+    `${pool.name} on ${pool.dexId}`,
+    `Token: ${pool.tokenAddress}`,
+    pool.url, '',
+    ...required.map(checkLine),
+  ];
+  if (warnings.length) lines.push('', 'Warning-only checks:', ...warnings.map(checkLine));
+  lines.push('', `Found ${checkedAt} in GeckoTerminal's newest Solana pools. One alert per token; /scan off stops alerts.`,
+    'Matching your rules does not make a token safe or profitable. New pools are where most scams live: verify before acting.');
   return lines.join('\n');
 }

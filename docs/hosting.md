@@ -6,7 +6,9 @@ about 15–20 minutes, plus a small monthly server fee from the provider
 you choose (check their current prices).
 
 The bot uses Telegram long polling. It only makes outbound HTTPS
-requests, so the server needs **no open ports** apart from SSH.
+requests — to api.telegram.org, api.dexscreener.com,
+api.geckoterminal.com and (if Claude features are on) api.anthropic.com
+— so the server needs **no open ports** apart from SSH.
 
 ## What you need
 

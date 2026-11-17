@@ -24,7 +24,7 @@ test('configuration fails closed without a valid token or numeric tester IDs', (
 test('allowed tester receives the welcome, including a Telegram deep-link start', async () => {
   assert.equal((await respond(update('/start'), ctx())).text, WELCOME);
   assert.equal((await respond(update('/start@SiftAgentbot invitation'), ctx())).text, WELCOME);
-  assert.match(WELCOME, /not live yet/);
+  assert.match(WELCOME, /\/scan on for automatic alerts/);
 });
 
 test('unknown users cannot access tester replies but can retrieve only their own ID', async () => {
@@ -50,9 +50,11 @@ test('help, status and unsupported commands describe the actual capability', asy
   assert.match((await respond(update('/help'), ctx())).text, /\/check <token address>/);
   const status = (await respond(update('/status'), ctx())).text;
   assert.match(status, /Saved criteria: none saved/);
-  assert.match(status, /Scheduled discovery: not connected/);
-  assert.match(status, /No scans or alerts are running/);
-  assert.match((await respond(update('/scan'), ctx())).text, /not available yet/);
+  assert.match(status, /Scanning: off/);
+  assert.match(status, /Follow-up monitoring of chosen tokens: not connected/);
+  assert.match(status, /No scans or alerts are running for you/);
+  assert.match((await respond(update('/monitor'), ctx())).text, /not available yet/);
+  assert.match((await respond(update('/scan'), ctx())).text, /Use \/scan on or \/scan off/);
   assert.match((await respond(update('find me coins'), ctx())).text, /not available yet/);
   for (const command of ['/constructor', '/toString', '/__proto__']) {
     assert.match((await respond(update(command), ctx())).text, /not available yet/);
