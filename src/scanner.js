@@ -186,14 +186,36 @@ async function deliverPending({ store, send, log, signal, pace, allowedUserIds, 
   }
 }
 
+// When the discovery source rate-limits, pause it with exponential backoff
+// (1, 2, 4, then at most 5 minutes) instead of asking again every cycle. The
+// watch list keeps being re-checked on DexScreener meanwhile.
+const BACKOFF_START_MS = 60_000;
+const BACKOFF_MAX_MS = 5 * 60_000;
+export function withDiscoveryBackoff(discovery, now = Date.now) {
+  let pausedUntil = 0;
+  let streak = 0;
+  return async (signal, options) => {
+    if (now() < pausedUntil) return { ok: false, reason: 'RATE_LIMITED', paused: true };
+    const result = await discovery(signal, options);
+    if (!result.ok && result.reason === 'RATE_LIMITED') {
+      streak += 1;
+      pausedUntil = now() + Math.min(BACKOFF_MAX_MS, BACKOFF_START_MS * 2 ** (streak - 1));
+    } else if (result.ok) {
+      streak = 0;
+    }
+    return result;
+  };
+}
+
 export async function runScanner({
   discovery, refresh, store, send, signal, allowedUserIds, log = console,
   intervalMs = DEFAULT_SCAN_INTERVAL_MS, watchMs = DEFAULT_WATCH_MS, now = Date.now,
 }) {
   let sourceDownLogged = false;
+  const gatedDiscovery = withDiscoveryBackoff(discovery, now);
   while (!signal.aborted) {
     try {
-      await runScanCycle({ discovery, refresh, store, send, log, signal, allowedUserIds, now, watchMs, pace: defaultPace });
+      await runScanCycle({ discovery: gatedDiscovery, refresh, store, send, log, signal, allowedUserIds, now, watchMs, pace: defaultPace });
       const last = store.getLastScan();
       if (last?.ok === false && !sourceDownLogged) {
         log.warn('Discovery source unavailable; scanning keeps retrying. /scan shows this to testers.');

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ALERT_FRESHNESS_MS, mergeTokenLevel, runScanCycle } from '../src/scanner.js';
+import { ALERT_FRESHNESS_MS, mergeTokenLevel, runScanCycle, withDiscoveryBackoff } from '../src/scanner.js';
 import { MAX_ALERT_ATTEMPTS, openStore } from '../src/store.js';
 import { TelegramError } from '../src/telegram.js';
 
@@ -281,4 +281,21 @@ test('a discovery outage is recorded for /scan status and scanning continues', a
   await cycle();
   assert.equal(state.sent.length, 1);
   assert.equal(store.getLastScan().ok, true);
+});
+
+test('a rate-limited discovery source is paused with exponential backoff, then resumes', async () => {
+  let clock = START;
+  let calls = 0;
+  let limited = true;
+  const gated = withDiscoveryBackoff(async () => { calls += 1; return limited ? { ok: false, reason: 'RATE_LIMITED' } : { ok: true, pools: [] }; }, () => clock);
+  const at = async (ms) => { clock = START + ms; return gated(); };
+  await at(0);                                // 429: paused for 1 minute
+  assert.deepEqual(await at(30_000), { ok: false, reason: 'RATE_LIMITED', paused: true });
+  await at(61_000);                           // asks again, 429 again: paused for 2 minutes
+  await at(150_000);                          // still paused
+  assert.equal(calls, 2);
+  limited = false;
+  assert.equal((await at(182_000)).ok, true); // resumes
+  await at(183_000);
+  assert.equal(calls, 4);                     // no pause after a success
 });

@@ -1,5 +1,6 @@
 import { COMMAND_MENU, readConfig, respond, verifyBot } from './bot.js';
 import { createClaude, readClaudeConfig } from './claude.js';
+import { readDataDir, readScanInterval, readWatchMinutes } from './config.js';
 import { createDiscovery } from './discovery.js';
 import { createMarketData, createTokenBatch } from './market-data.js';
 import { runPolling } from './polling.js';
@@ -12,29 +13,13 @@ for (const event of ['SIGINT', 'SIGTERM']) {
   process.once(event, () => shutdown.abort());
 }
 
-function readWholeNumber(env, name, { min, max, fallback }) {
-  const raw = env[name]?.trim();
-  if (!raw) return fallback;
-  const n = Number(raw);
-  if (!Number.isInteger(n) || n < min || n > max) {
-    throw new Error(`${name} must be a whole number between ${min} and ${max}.`);
-  }
-  return n;
-}
-
-// Scan cadence: 30s–3600s, default 60s (gentle on the public data sources).
-export const readScanInterval = (env) => readWholeNumber(env, 'SIFT_SCAN_INTERVAL_SECONDS', { min: 30, max: 3600, fallback: 60 });
-// How long each new token stays on the watch list: 0–120 minutes, default 30.
-// 0 judges tokens only once, at launch.
-export const readWatchMinutes = (env) => readWholeNumber(env, 'SIFT_WATCH_MINUTES', { min: 0, max: 120, fallback: 30 });
-
 async function main() {
   const { token, allowedUserIds } = readConfig(process.env);
   const claudeConfig = readClaudeConfig(process.env);
   const claude = claudeConfig ? createClaude(claudeConfig) : null;
   const scanIntervalSeconds = readScanInterval(process.env);
   const watchMinutes = readWatchMinutes(process.env);
-  const dataDir = process.env.SIFT_DATA_DIR?.trim() || '.sift';
+  const dataDir = readDataDir(process.env);
   const store = openStore(dataDir);
   const market = createMarketData();
   const call = createTelegram(token);

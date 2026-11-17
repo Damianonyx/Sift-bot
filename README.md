@@ -15,47 +15,50 @@ Bot: [@SiftAgentbot](https://t.me/SiftAgentbot)
 
 ## Current status
 
-Sift is early in development. This repository now implements the
-criteria milestone for the existing @SiftAgentbot:
+Sift is ready for private testing: each tester describes what they look
+for, approves the resulting rules, and gets evidence-backed alerts when
+new Solana tokens match. **Every tester has their own criteria**; there
+are no shared or default rules.
 
-- `/start`, `/help`, `/status`, `/id`: welcome, commands, an honest
-  summary of what is and is not connected, and the sender's own ID.
-- `/criteria <description>` (needs `ANTHROPIC_API_KEY`): Claude turns a
-  tester's plain words into typed screening rules. Every rule must
-  quote its number from the tester's own message; anything vague,
-  unsupported or embedded as an instruction is listed back as
-  "unresolved" and never activated. Claude proposes; it never decides.
+- `/criteria <description>`: Claude turns a tester's plain words into
+  typed screening rules (market cap, FDV, liquidity, 1h volume, 1h
+  trades, pool age). Every rule must quote its words from the tester's
+  own message, and its number must trace back to that quote ("5m" is
+  $5,000,000 of market cap but 5 minutes of pool age). Anything vague,
+  unsupported or untraceable is listed back as unresolved and never
+  activated. Describing wanted tokens in plain words, without the
+  command, works too. Claude proposes; it never decides.
 - `/approve` and `/discard`: nothing takes effect without explicit
-  approval. Approved criteria are versioned and stored in SQLite, so
-  they survive restarts.
-- `/check <address>`: evaluates a Solana token against the tester's
-  approved rules using live DexScreener data. Replies show each rule's
-  result with the measured value, its provenance and timestamp, the
-  selected pool (best liquidity, with DEX and link), and the rule that
-  failed. A value the data source does not provide is `unknown`, and an
-  unknown can never satisfy a required rule.
+  approval. Approved criteria are versioned and stored in SQLite.
 - `/scan on` and `/scan off`: automatic discovery. About once a minute
-  the bot reads GeckoTerminal's newest Solana pools and alerts each
-  scanning tester whose approved rules a brand-new pool satisfies —
-  with the same evidence format, at most one alert per token, through a
-  persistent delivery ledger with bounded retries and paced sends.
-  `/scan` and `/status` show the last check, and whether the data
-  source is down. A pool whose required data is unknown never alerts.
-- Plain-language commands (optional): free text such as "what works
-  today?" maps to one of the fixed commands. Sift always sends its own
-  fixed reply text; Claude never writes replies.
+  Sift reads GeckoTerminal's newest Solana pools (up to 3 pages, roughly
+  40 launches a minute at busy times), adds DexScreener market cap and
+  FDV, which brand-new pools lack on GeckoTerminal, and keeps watching
+  each token for 30 minutes as its numbers change. When a token
+  satisfies every required rule of a tester's criteria, that tester
+  gets one alert for it, with each value's provider and time.
+- `/check <address>`, or just pasting an address: evaluates any Solana
+  token against the tester's rules with live DexScreener data.
+- Token addresses in replies are tap-to-copy. `/status` and `/scan`
+  show what is running, and when a data source is down.
+- `npm run preflight` checks the whole setup (Telegram, Claude, storage
+  and both data sources) through the bot's own code.
 
-All 57 offline tests pass. The full flows were exercised end to end
-with a scripted Claude stand-in against the real APIs: describe,
-approve, restart, `/check` (DexScreener), and `/scan on` followed by
-real alerts for pools created minutes earlier (GeckoTerminal). It has
-not yet been run against the live @SiftAgentbot or with a real
-Anthropic key, and continuous hosting has not been configured. On
-2026-10-11, owner screenshots verified the earlier welcome-bot
-commands live on mobile.
+A value a data source does not provide is `unknown`, and an unknown
+never satisfies a required rule, so an alert only ever carries known,
+labelled, timestamped values.
+
+95 offline tests pass, and mutation checks confirm the safety rules are
+each covered by a test. Live runs against the real GeckoTerminal and
+DexScreener APIs (with Telegram and Claude scripted) produced real
+alerts, including tokens caught minutes after launch by the watch list.
+Not yet confirmed: the live @SiftAgentbot on a host, and a real
+Anthropic key; `npm run preflight` checks both. On 2026-10-11, owner
+screenshots verified the earlier welcome-bot commands live on mobile.
 
 Follow-up monitoring of chosen tokens is not implemented; that product
-feature below remains planned.
+feature below remains planned. For the launch checklist and a guide to
+send testers, see [docs/private-testing.md](docs/private-testing.md).
 
 ## How Sift will work
 
@@ -136,15 +139,16 @@ Example strategies will not become silent defaults.
 - [x] Basic Telegram response and configured private tester access.
 - [x] Durable user settings and agent state (SQLite; criteria and the
   update offset survive restarts).
-- [x] Real token-data checks and evidence validation (on-demand
-  `/check` via DexScreener; scheduled scanning still pending).
+- [x] Real token-data checks and evidence validation (`/check` and
+  scanning use DexScreener and GeckoTerminal, each value labelled).
 - [x] Conversational setup and rule approval (`/criteria` → `/approve`).
-- [x] One complete discovery-to-alert flow (`/scan on`: GeckoTerminal's
-  newest pools, evaluated against approved rules, alerted with
-  evidence; per-token dedup and a persistent delivery ledger).
+- [x] One complete discovery-to-alert flow (`/scan on`: new pools,
+  enriched and watched for 30 minutes, evaluated against each tester's
+  approved rules, alerted once per token with evidence).
+- [ ] Private testing with invited testers (see
+  [docs/private-testing.md](docs/private-testing.md)).
 - [ ] Alert follow-up controls (monitor, dismiss, mute buttons).
 - [ ] Follow-up monitoring and event classification.
-- [ ] Reliability testing and invited-user validation.
 
 Each stage should report what works, what was tested,
 and what remains incomplete.
@@ -161,9 +165,10 @@ and what remains incomplete.
 
 ## Development setup
 
-This milestone uses Node.js 24 LTS and its built-in HTTP and test
-APIs. Its only package is Anthropic's official SDK
-(`@anthropic-ai/sdk`), used for optional plain-language commands.
+Sift runs on Node.js 24 LTS and uses its built-in HTTP, SQLite and test
+APIs. Its only package is Anthropic's official SDK (`@anthropic-ai/sdk`).
+To run it on a server around the clock, follow
+[docs/hosting.md](docs/hosting.md).
 
 ### Local checks
 
@@ -179,21 +184,25 @@ Tests do not need credentials and do not contact Telegram or Anthropic.
 Run these steps on the machine that will run the bot, not in a
 GitHub issue, a chat message, or a public repository file editor.
 
-1. Copy `.env.example` to `.env`, which is ignored by Git.
-2. Set `TELEGRAM_BOT_TOKEN` in that local file. For hosting, use the
-   provider's secret settings instead. Never share or commit its value.
+1. Run `npm install`, then copy `.env.example` to `.env`, which is
+   ignored by Git.
+2. Set `TELEGRAM_BOT_TOKEN` and `ANTHROPIC_API_KEY` in that file. Never
+   share or commit their values. Without the Anthropic key the bot runs,
+   but testers cannot create criteria.
 3. Start with `SIFT_ALLOWED_USER_IDS` empty and run `npm start`.
 4. Open @SiftAgentbot privately in Telegram and send `/id`.
-5. Add the returned numeric ID to `SIFT_ALLOWED_USER_IDS` and restart.
-   Additional testers can be added as comma-separated IDs.
-6. Send `/start`, `/help`, and `/status` from an allowed account.
-7. Optional: set `ANTHROPIC_API_KEY` to turn on plain-language commands
-   and `/criteria` setup, then restart. Send "what can you do?" from an
-   allowed account; the reply should be the `/help` text. Then try
-   `/criteria at least 10k liquidity`, `/approve`, and `/check` with a
-   Solana token address. `SIFT_CLAUDE_MODEL` overrides the default
-   model, `claude-opus-5-5`. `SIFT_DATA_DIR` moves the SQLite state
-   (default `.sift/`).
+5. Add the returned numeric ID to `SIFT_ALLOWED_USER_IDS` (more testers
+   as comma-separated IDs), stop the bot with Ctrl+C, and run
+   `npm run preflight`. Fix anything marked with a cross, then
+   `npm start` again.
+6. In Telegram: `/criteria at least 10k liquidity and market cap under
+   2m`, then `/approve`, then `/scan on`. Paste any Solana token address
+   to check it.
+
+Optional settings: `SIFT_CLAUDE_MODEL` (default `claude-opus-5-5`),
+`SIFT_SCAN_INTERVAL_SECONDS` (default 60), `SIFT_WATCH_MINUTES`
+(default 30; 0 judges tokens only at launch), and `SIFT_DATA_DIR`
+(default `.sift/`).
 
 The process verifies that the token belongs to @SiftAgentbot and
 refuses to start polling if a webhook is configured. It never deletes
@@ -211,7 +220,8 @@ have not yet been confirmed in live Telegram testing.
   retrieve its own ID.
 - [ ] Group messages do not receive replies.
 - [x] `/help` lists the supported commands.
-- [x] `/status` says that discovery, AI, data, and monitoring are not connected.
+- [x] `/status` gives an honest summary (verified on the welcome-bot version).
+- [ ] `npm run preflight` passes on the host.
 - [ ] Graceful process shutdown and restart with unchanged configuration.
 - [ ] `/criteria` with a real Anthropic key proposes only explicitly
   stated rules and lists the rest as unresolved.
@@ -220,6 +230,8 @@ have not yet been confirmed in live Telegram testing.
   an unknown value never passes a required rule.
 - [ ] `/scan on` delivers an alert for a genuinely new pool on the live
   bot, exactly once per token, and `/scan off` stops alerts.
+- [ ] Tapping the token address in an alert copies it on mobile.
+- [ ] Removing a tester's ID and restarting stops their alerts.
 
 ### Testing in GitHub Codespaces
 
@@ -244,19 +256,21 @@ system service: [docs/hosting.md](docs/hosting.md) walks through the
 setup, and `deploy/sift-bot.service` is the service file. The server
 provider's fee is a separate decision for the owner.
 
-There is no scanning job and no alert history. Saved criteria and the
-Telegram update offset live in a SQLite file under `SIFT_DATA_DIR`
+Saved criteria, scanning switches, the watch list, the alert ledger and
+the Telegram update offset live in a SQLite file under `SIFT_DATA_DIR`
 (default `.sift/`, or `/var/lib/sift-bot` under the systemd service).
-Tester IDs are read from configuration at startup. Message bodies and
+Tester IDs are read from configuration at startup; removing an ID and
+restarting cuts that tester off at once, including queued alerts. Message bodies and
 bot tokens are not logged by this application. Telegram still handles
 messages under its own service policies.
 
 When Claude features are on, two kinds of tester text reach Anthropic's
 API under its policies: a non-command message (up to 500 characters) to
-choose a command, and the description after `/criteria` (up to 1,000
-characters) to propose rules. `/check` sends only the validated token
-address to DexScreener, under DexScreener's policies. Slash-command
-text and messages from unlisted accounts are never sent anywhere.
+choose a command, and a criteria description (up to 1,000 characters)
+to propose rules. `/check` and scanning send only token addresses to
+DexScreener and GeckoTerminal, under their policies; no tester data.
+Other slash commands, pasted addresses, and messages from unlisted
+accounts are never sent to Claude.
 
 Each Claude call is one paid API request. Per tester and minute, 5
 routing and 3 criteria requests are allowed; beyond that, and whenever
@@ -278,18 +292,27 @@ the moment between sending a reply and saving the offset can repeat
 that one reply. Telegram may retain pending updates for up to 24
 hours; messages sent while the bot is down are answered on startup.
 
-Scanning contacts GeckoTerminal only while at least one tester has
-`/scan on`, and the request carries no tester data. Alerts go through
-a ledger: each is recorded before sending, retried on transient
-failures up to 5 times with sends paced about a second apart, and
-abandoned (with that tester's scanning turned off) if Telegram rejects
-it permanently. A tester is alerted at most once per token, and that
-dedup survives criteria changes: a token alerted under v1 does not
-alert again under v2. Alerts only fire while the process runs; pools
-that appear and disappear during downtime are missed, not backfilled.
-Brand-new pools usually lack market cap and FDV data, so required
-rules on those fields rarely alert at pool age zero — by design,
-unknown data never passes.
+Scanning runs only while at least one allowed tester has `/scan on`.
+Each cycle reads up to 3 pages of new pools from GeckoTerminal; if it
+rate-limits, discovery pauses with backoff (1 to 5 minutes) while the
+watch list keeps being re-checked on DexScreener, at most 20 batch
+requests a cycle. Pool values (liquidity, volume, trades, age) come
+from the discovered pool and token values (market cap, FDV) from
+DexScreener; every value in an alert names its provider. DexScreener
+reports no liquidity for pump.fun tokens still on their bonding curve,
+so after launch a required liquidity rule only matches tokens trading
+in an AMM pool. A new pool can belong to an older token; the alert
+shows the pool's age.
+
+Alerts go through a ledger: each is recorded before sending, retried
+on transient failures up to 5 times with sends paced about a second
+apart, dropped if still undelivered after 30 minutes, and abandoned
+(with that tester's scanning turned off) if Telegram rejects it
+permanently. `/scan off` also cancels queued alerts. A tester is
+alerted at most once per token, and that survives criteria changes: a
+token alerted under v1 does not alert again under v2. Alerts only fire
+while the process runs; launches during downtime are missed, not
+backfilled.
 
 Credentials must remain outside source control, chat, and logs.
 
