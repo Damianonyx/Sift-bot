@@ -5,10 +5,11 @@ import { isPermanentReplyError, TelegramError } from './telegram.js';
 export const FATAL_CODES = [401, 404, 409];
 
 // Long-polls Telegram and answers each update in order. Resolves when `signal`
-// aborts; rejects only on a fatal Telegram error.
-// The offset is held in memory: a restart can repeat a reply (see README).
-export async function runPolling({ call, handleUpdate, signal, log = console, sleep = delay }) {
-  let offset = 0;
+// aborts; rejects only on a fatal Telegram error. `onOffset` is told the next
+// offset after each update is finished, so a store can persist it; delivery is
+// at-least-once, so a crash between sending and saving can repeat one reply.
+export async function runPolling({ call, handleUpdate, signal, log = console, sleep = delay, initialOffset = 0, onOffset }) {
+  let offset = Number.isSafeInteger(initialOffset) && initialOffset > 0 ? initialOffset : 0;
   // A reply that was built but not yet delivered. If sending fails and the
   // batch is retried, the same reply is reused, so a retry never repeats a
   // paid Claude request for the same update.
@@ -37,6 +38,7 @@ export async function runPolling({ call, handleUpdate, signal, log = console, sl
         }
         pending = null;
         offset = update.update_id + 1;
+        onOffset?.(offset);
       }
     } catch (error) {
       if (signal.aborted) return;

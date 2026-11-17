@@ -1,55 +1,63 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readConfig, replyFor, verifyBot, WELCOME } from '../src/bot.js';
+import { readConfig, respond, verifyBot, WELCOME } from '../src/bot.js';
+import { openStore } from '../src/store.js';
 import { createTelegram, isPermanentReplyError, TelegramError } from '../src/telegram.js';
 
 const testToken = `12345:${'x'.repeat(30)}`; // Deliberately fake; no network calls in tests.
-const allowed = new Set([42]);
 const update = (text, id = 42, type = 'private') => ({
   update_id: 1,
   message: { text, from: { id, is_bot: false }, chat: { id, type } },
 });
+// Context with no Claude and no market data: fixed replies only.
+const ctx = (over = {}) => ({ allowedUserIds: new Set([42]), store: openStore(':memory:'), ...over });
 
 test('configuration fails closed without a valid token or numeric tester IDs', () => {
   assert.throws(() => readConfig({}), /TELEGRAM_BOT_TOKEN/);
   assert.throws(() => readConfig({ TELEGRAM_BOT_TOKEN: testToken, SIFT_ALLOWED_USER_IDS: '42,wrong' }), /numeric IDs/);
+  assert.throws(() => readConfig({ TELEGRAM_BOT_TOKEN: testToken, SIFT_ALLOWED_USER_IDS: '42, -1' }), /numeric IDs/);
   assert.equal(readConfig({ TELEGRAM_BOT_TOKEN: testToken }).allowedUserIds.size, 0);
   assert.deepEqual(readConfig({ TELEGRAM_BOT_TOKEN: testToken, SIFT_ALLOWED_USER_IDS: '42, 57' }).allowedUserIds, new Set([42, 57]));
   assert.deepEqual(readConfig({ TELEGRAM_BOT_TOKEN: testToken, SIFT_ALLOWED_USER_IDS: '42,' }).allowedUserIds, new Set([42]));
-  assert.throws(() => readConfig({ TELEGRAM_BOT_TOKEN: testToken, SIFT_ALLOWED_USER_IDS: '42, -1' }), /numeric IDs/);
 });
 
-test('allowed tester receives the welcome, including a Telegram deep-link start', () => {
-  assert.equal(replyFor(update('/start'), allowed).text, WELCOME);
-  assert.equal(replyFor(update('/start@SiftAgentbot invitation'), allowed).text, WELCOME);
-  assert.match(WELCOME, /not live yet/);
+test('allowed tester receives the welcome, including a Telegram deep-link start', async () => {
+  assert.equal((await respond(update('/start'), ctx())).text, WELCOME);
+  assert.equal((await respond(update('/start@SiftAgentbot invitation'), ctx())).text, WELCOME);
+  assert.match(WELCOME, /\/scan on for automatic alerts/);
 });
 
-test('unknown users cannot access tester replies but can retrieve only their own ID', () => {
-  assert.match(replyFor(update('/start', 57), allowed).text, /does not have tester access/);
-  assert.match(replyFor(update('/id', 57), allowed).text, /user ID: 57/);
-  assert.doesNotMatch(replyFor(update('/id', 57), allowed).text, /42/);
-  assert.notEqual(replyFor(update('/start'), new Set()).text, WELCOME);
+test('unknown users cannot access tester replies but can retrieve only their own ID', async () => {
+  assert.match((await respond(update('/start', 57), ctx())).text, /does not have tester access/);
+  assert.match((await respond(update('/id', 57), ctx())).text, /user ID: 57/);
+  assert.doesNotMatch((await respond(update('/id', 57), ctx())).text, /42/);
+  assert.match((await respond(update('/criteria 10k liquidity', 57), ctx())).text, /does not have tester access/);
+  assert.match((await respond(update('/check abc', 57), ctx())).text, /does not have tester access/);
+  assert.notEqual((await respond(update('/start'), ctx({ allowedUserIds: new Set() }))).text, WELCOME);
 });
 
-test('groups, other bots, callbacks and non-text messages are ignored', () => {
-  assert.equal(replyFor(update('/start', 42, 'supergroup'), allowed), null);
-  assert.equal(replyFor(update('/start@OtherBot'), allowed), null);
-  assert.equal(replyFor({ callback_query: {} }, allowed), null);
-  assert.equal(replyFor(update(undefined), allowed), null);
+test('groups, other bots, callbacks and non-text messages are ignored', async () => {
+  assert.equal(await respond(update('/start', 42, 'supergroup'), ctx()), null);
+  assert.equal(await respond(update('/start@OtherBot'), ctx()), null);
+  assert.equal(await respond({ callback_query: {} }, ctx()), null);
+  assert.equal(await respond(update(undefined), ctx()), null);
   const botUpdate = update('/start');
   botUpdate.message.from.is_bot = true;
-  assert.equal(replyFor(botUpdate, allowed), null);
+  assert.equal(await respond(botUpdate, ctx()), null);
 });
 
-test('help, status and unsupported commands describe the actual capability', () => {
-  assert.match(replyFor(update('/help'), allowed).text, /\/status/);
-  assert.match(replyFor(update('/status'), allowed).text, /No scans or alerts are running/);
-  assert.match(replyFor(update('/scan'), allowed).text, /not available yet/);
-  assert.match(replyFor(update('find me coins'), allowed).text, /not available yet/);
+test('help, status and unsupported commands describe the actual capability', async () => {
+  assert.match((await respond(update('/help'), ctx())).text, /\/check <token address>/);
+  const status = (await respond(update('/status'), ctx())).text;
+  assert.match(status, /Saved criteria: none saved/);
+  assert.match(status, /Scanning: off/);
+  assert.match(status, /Follow-up monitoring of chosen tokens: not connected/);
+  assert.match(status, /No scans or alerts are running for you/);
+  assert.match((await respond(update('/monitor'), ctx())).text, /not available yet/);
+  assert.match((await respond(update('/scan'), ctx())).text, /Use \/scan on or \/scan off/);
+  assert.match((await respond(update('find me coins'), ctx())).text, /not available yet/);
   for (const command of ['/constructor', '/toString', '/__proto__']) {
-    assert.equal(typeof replyFor(update(command), allowed).text, 'string');
-    assert.match(replyFor(update(command), allowed).text, /not available yet/);
+    assert.match((await respond(update(command), ctx())).text, /not available yet/);
   }
 });
 

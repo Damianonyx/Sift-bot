@@ -3,13 +3,14 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
-  "description": "Sift's first private Telegram welcome-bot milestone, with optional Claude-interpreted plain-language commands.",
+  "description": "Sift: a private Telegram agent that turns plain-language criteria into rules, scans new Solana pools and alerts with evidence.",
   "engines": {
     "node": ">=24 <25"
   },
   "scripts": {
-    "start": "node --env-file-if-exists=.env src/index.js",
-    "test": "node --test"
+    "start": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env src/index.js",
+    "preflight": "node --disable-warning=ExperimentalWarning --env-file-if-exists=.env scripts/preflight.js",
+    "test": "node --disable-warning=ExperimentalWarning --test"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^1.5.0"

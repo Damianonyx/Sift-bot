@@ -65,6 +65,15 @@ test('an unexpected error handling one update skips it instead of stalling polli
   assert.deepEqual(logs, ['An update could not be processed and was skipped.']);
 });
 
+test('the offset resumes from the store and every confirmed update is reported', async () => {
+  const confirmed = [];
+  const telegram = fakeTelegram([message(7, 111), message(8, 222)]);
+  await runPolling({ ...telegram, handleUpdate: reply, log: silent, sleep: noSleep, initialOffset: 8, onOffset: (o) => confirmed.push(o) });
+  assert.deepEqual(telegram.offsets[0], 8); // update 7 was already handled before the restart
+  assert.deepEqual(telegram.sent, [222]);
+  assert.deepEqual(confirmed, [9]);
+});
+
 test('misconfiguration stops polling instead of retrying', async () => {
   for (const code of [401, 404, 409]) {
     const call = async () => { throw new TelegramError(code); };

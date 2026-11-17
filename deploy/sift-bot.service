@@ -22,16 +22,17 @@ User=sift
 Group=sift
 WorkingDirectory=/home/sift/Sift-bot
 # Secrets stay in /home/sift/Sift-bot/.env (chmod 600), never in this file.
-# --env-file (not -if-exists) so a missing .env fails loudly.
-ExecStart=/usr/bin/node --env-file=.env src/index.js
+# --env-file (not -if-exists) so a missing .env fails loudly. The warning
+# flag hides Node's notice that its built-in SQLite module is experimental.
+ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning --env-file=.env src/index.js
 Restart=on-failure
 RestartSec=10
 # The bot finishes its current Telegram request and exits on SIGTERM.
 TimeoutStopSec=40
 
-# Writable data directory for saved state (/var/lib/sift-bot). Unused by the
-# welcome bot; used by later versions that keep SQLite data in SIFT_DATA_DIR.
-# This setting overrides any SIFT_DATA_DIR in .env.
+# Writable data directory (/var/lib/sift-bot) for the SQLite state: criteria,
+# scanning switches, the watch list and the alert ledger. This setting
+# overrides any SIFT_DATA_DIR in .env.
 StateDirectory=sift-bot
 StateDirectoryMode=0700
 Environment=SIFT_DATA_DIR=/var/lib/sift-bot

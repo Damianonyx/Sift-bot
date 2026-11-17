@@ -6,7 +6,9 @@ about 15–20 minutes, plus a small monthly server fee from the provider
 you choose (check their current prices).
 
 The bot uses Telegram long polling. It only makes outbound HTTPS
-requests, so the server needs **no open ports** apart from SSH.
+requests — to api.telegram.org, api.dexscreener.com,
+api.geckoterminal.com and (if Claude features are on) api.anthropic.com
+— so the server needs **no open ports** apart from SSH.
 
 ## What you need
 
@@ -15,7 +17,10 @@ requests, so the server needs **no open ports** apart from SSH.
   expire; they stop working only if you revoke them.
 - Your numeric Telegram user ID for `SIFT_ALLOWED_USER_IDS`. If you
   don't have it yet, leave it empty at first and send `/id` to the bot.
-- Optional: `ANTHROPIC_API_KEY` for plain-language commands.
+- `ANTHROPIC_API_KEY` from console.anthropic.com (API keys). Testers
+  need it to turn their plain-language descriptions into rules; without
+  it the bot only answers fixed commands. Each `/criteria` costs a few
+  cents at most; set a monthly spend limit in the Anthropic console.
 
 You do **not** need a GitHub personal access token. Step 4 uses a
 read-only deploy key, which does not expire.
@@ -108,24 +113,40 @@ chmod 600 .env
 nano .env
 ```
 
-Fill in `TELEGRAM_BOT_TOKEN`, `SIFT_ALLOWED_USER_IDS` and, optionally,
+Fill in `TELEGRAM_BOT_TOKEN`, `SIFT_ALLOWED_USER_IDS` and
 `ANTHROPIC_API_KEY`. Save with Ctrl+O, Enter, then exit with Ctrl+X.
+If you don't know your Telegram user ID yet, leave
+`SIFT_ALLOWED_USER_IDS` empty for now; step 6 shows how to get it.
 
 `chmod 600` means only the `sift` user can read the file. Never commit
 `.env`, paste it into chat, or put secrets in the service file.
 
-## 6. Do a test run
+## 6. Check everything, then do a test run
 
-**Stop every other copy of the bot first**, such as a Codespace or your
-own computer. Telegram allows only one polling process per bot; a second
-one makes the bot stop with a `409` conflict.
+Run the preflight check. It tests your Node.js version, the
+configuration, the Telegram token, storage, a real Claude request, and
+both market-data sources, and says exactly what to fix:
 
 ```sh
-node --env-file=.env src/index.js
+npm run preflight
 ```
 
-You should see `Sift welcome bot is running.` Send `/status` to the bot
-in Telegram, check that it answers, then stop it with Ctrl+C.
+Every line should start with ✓ and the last line should say
+`Ready for private testing.` A ✗ line names the problem and the fix.
+(The Claude check makes two small paid requests.)
+
+Then **stop every other copy of the bot**, such as a Codespace or your
+own computer. Telegram allows only one polling process per bot; a second
+one makes the bot stop with a `409` conflict. Start a test run:
+
+```sh
+npm start
+```
+
+You should see `Sift is running`. In Telegram, send the bot `/id`; if
+your ID is not in `.env` yet, stop the bot with Ctrl+C, add it to
+`SIFT_ALLOWED_USER_IDS`, and start it again. Then send `/status`, check
+that it answers, and stop the bot with Ctrl+C.
 
 Now leave the `sift` user:
 
@@ -170,7 +191,7 @@ Send `/start` and `/status` from your tester account to confirm.
 After a pull request is merged into `main`:
 
 ```sh
-sudo -iu sift bash -c 'cd ~/Sift-bot && git pull && npm ci'
+sudo -iu sift bash -c 'cd ~/Sift-bot && git pull && npm ci && npm run preflight'
 systemctl restart sift-bot
 journalctl -u sift-bot -n 20
 ```
@@ -182,6 +203,8 @@ If `deploy/sift-bot.service` itself changed, copy it again and run
 
 | Log message or symptom | Cause and fix |
 |---|---|
+| Anything unclear | Run `sudo -iu sift bash -c 'cd ~/Sift-bot && npm run preflight'`. Each ✗ line names the problem and the fix. |
+| `Discovery source unavailable; scanning keeps retrying.` | GeckoTerminal is down or rate-limiting. Sift backs off (up to 5 minutes) and keeps re-checking watched tokens on DexScreener; nothing to do unless it lasts for hours. |
 | `Telegram request failed (409).` | Another copy of the bot is polling. Stop the Codespace or other machine, then `systemctl restart sift-bot`. |
 | `A Telegram webhook is already configured.` | A webhook deployment (for example the Cloudflare setup in PR #2) is registered. Only if nothing else should be serving the bot, remove it with the snippet below, then restart. |
 | `Telegram request failed (401).` | The token is wrong or was revoked. Get the current one from @BotFather, update `.env`, restart. |
@@ -203,10 +226,11 @@ Enter. The reply should contain `"ok":true`.
 ## Saved data and backups
 
 The service gives the bot one writable folder, `/var/lib/sift-bot`, and
-sets `SIFT_DATA_DIR` to it (overriding any value in `.env`). The current
-welcome bot saves nothing there. Later versions that keep SQLite data
-will use it. Once they do, back that folder up, for example with your
-provider's snapshot feature.
+sets `SIFT_DATA_DIR` to it (overriding any value in `.env`). The bot
+keeps its SQLite database there: each tester's approved criteria and
+the Telegram update offset. Back that folder up, for example with your
+provider's snapshot feature; losing it loses saved criteria but no
+credentials.
 
 ## Security notes
 
