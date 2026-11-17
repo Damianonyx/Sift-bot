@@ -4,10 +4,10 @@ import { DatabaseSync } from 'node:sqlite';
 
 // Durable state in SQLite (built into Node, no packages): the Telegram update
 // offset, each tester's draft and approved screening criteria plus their
-// scanning switch, pools the scanner has already evaluated, and an alert
-// ledger that makes delivery at-least-once with bounded retries and exactly
-// one alert per tester and token. Values are JSON at this boundary; callers
-// never see SQL.
+// scanning switch, pools the scanner has already seen, the watch list of
+// young tokens it keeps re-checking, and an alert ledger that makes delivery
+// at-least-once with bounded retries and exactly one alert per tester and
+// token. Values are JSON at this boundary; callers never see SQL.
 export const MAX_ALERT_ATTEMPTS = 5;
 
 export function openStore(location) {
@@ -43,6 +43,16 @@ export function openStore(location) {
       sent_at text
     );
     create unique index if not exists alerts_once_per_token on alerts (user_id, token_address);
+    create table if not exists candidates (
+      token_address text primary key,
+      pool_address text not null,
+      name text not null,
+      dex_id text not null,
+      discovered_at text not null,
+      expires_at text not null,
+      last_checked text
+    );
+    create index if not exists candidates_due on candidates (last_checked);
   `);
   // Databases created before the scanner milestone lack the scanning column.
   const columns = db.prepare("select name from pragma_table_info('agents')").all().map((c) => c.name);
@@ -66,10 +76,26 @@ export function openStore(location) {
     pruneSeen: db.prepare('delete from seen_pools where first_seen < ?'),
     createAlert: db.prepare(`insert or ignore into alerts (user_id, token_address, pool_address, message, created_at)
       values (?, ?, ?, ?, ?)`),
-    pendingAlerts: db.prepare('select id, user_id, message from alerts where sent_at is null and attempts < ? order by id limit 20'),
+    // Only for testers whose scanning is on, so /scan off also stops alerts
+    // that were already queued; stale alerts are never delivered late.
+    pendingAlerts: db.prepare(`select a.id, a.user_id, a.token_address, a.message from alerts a
+      join agents g on g.user_id = a.user_id
+      where a.sent_at is null and a.attempts < ? and g.scanning = 1 and a.created_at >= ?
+      order by a.id limit 20`),
     recordAttempt: db.prepare('update alerts set attempts = attempts + 1 where id = ?'),
     markSent: db.prepare('update alerts set sent_at = ? where id = ?'),
     abandonAlert: db.prepare('update alerts set attempts = ? where id = ?'),
+    addCandidate: db.prepare(`insert or ignore into candidates
+      (token_address, pool_address, name, dex_id, discovered_at, expires_at, last_checked) values (?, ?, ?, ?, ?, ?, ?)`),
+    dueCandidates: db.prepare(`select token_address, pool_address, name, dex_id, discovered_at from candidates
+      where expires_at > ? order by last_checked is not null, last_checked limit ?`),
+    markChecked: db.prepare('update candidates set last_checked = ? where token_address = ?'),
+    expireCandidates: db.prepare('delete from candidates where expires_at <= ?'),
+    countCandidates: db.prepare('select count(*) as n from candidates'),
+    stats: db.prepare(`select
+      (select count(*) from agents where approved is not null) as withCriteria,
+      (select count(*) from agents where scanning = 1) as scanning,
+      (select count(*) from alerts where sent_at is not null) as alertsSent`),
   };
   const parse = (text) => (typeof text === 'string' ? JSON.parse(text) : null);
   const nowIso = () => new Date().toISOString();
@@ -113,12 +139,42 @@ export function openStore(location) {
     createAlert(userId, tokenAddress, poolAddress, message) {
       return statements.createAlert.run(userId, tokenAddress, poolAddress, message, nowIso()).changes > 0;
     },
-    pendingAlerts() { return statements.pendingAlerts.all(MAX_ALERT_ATTEMPTS); },
+    pendingAlerts(sinceIso) { return statements.pendingAlerts.all(MAX_ALERT_ATTEMPTS, sinceIso); },
     recordAttempt(id) { statements.recordAttempt.run(id); },
     markSent(id) { statements.markSent.run(nowIso(), id); },
     abandonAlert(id) { statements.abandonAlert.run(MAX_ALERT_ATTEMPTS, id); },
     setLastScan(info) { statements.setKv.run('lastScan', JSON.stringify(info)); },
     getLastScan() { return parse(statements.getKv.get('lastScan')?.value); },
+    // Young tokens the scanner keeps re-checking until they match or expire.
+    // Returns false when the token is already on the watch list.
+    addCandidate({ tokenAddress, poolAddress, name, dexId, discoveredAt, expiresAt, lastChecked = null }) {
+      return statements.addCandidate.run(tokenAddress, poolAddress, name, dexId, discoveredAt, expiresAt, lastChecked).changes > 0;
+    },
+    // Least recently checked first; never-checked tokens before all others.
+    dueCandidates(nowIso, limit) {
+      return statements.dueCandidates.all(nowIso, limit).map((row) => ({
+        tokenAddress: row.token_address, poolAddress: row.pool_address, name: row.name,
+        dexId: row.dex_id, discoveredAt: row.discovered_at,
+      }));
+    },
+    markChecked(tokenAddresses, atIso) {
+      for (const token of tokenAddresses) statements.markChecked.run(atIso, token);
+    },
+    expireCandidates(nowIso) { statements.expireCandidates.run(nowIso); },
+    countCandidates() { return statements.countCandidates.get().n; },
+    stats() { return { ...statements.stats.get(), watching: statements.countCandidates.get().n }; },
+    // Runs fn inside one transaction (much faster for batch writes).
+    transaction(fn) {
+      db.exec('begin');
+      try {
+        const result = fn();
+        db.exec('commit');
+        return result;
+      } catch (error) {
+        db.exec('rollback');
+        throw error;
+      }
+    },
     close() { db.close(); },
   };
 }

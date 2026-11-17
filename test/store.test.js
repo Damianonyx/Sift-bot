@@ -5,6 +5,8 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openStore } from '../src/store.js';
 
+const EPOCH = '1970-01-01T00:00:00.000Z';
+
 const proposal = { rules: [{ field: 'liquidityUsd', op: 'gte', value: 10_000, severity: 'require', evidence: '10k liquidity' }], unresolved: [] };
 
 test('offset starts at zero and only persists safe positive integers', () => {
@@ -48,20 +50,57 @@ test('the alert ledger: one alert per tester and token, pending until sent, boun
   assert.equal(store.createAlert(42, 'TokenA', 'PoolA', 'alert text'), true);
   assert.equal(store.createAlert(42, 'TokenA', 'PoolB', 'same token, other pool'), false); // once per token
   assert.equal(store.createAlert(57, 'TokenA', 'PoolA', 'other tester'), true);
-  let pending = store.pendingAlerts();
+  // Pending alerts are only for testers whose scanning is on.
+  assert.equal(store.pendingAlerts(EPOCH).length, 0);
+  for (const id of [42, 57]) { store.setDraft(id, proposal); store.approveDraft(id); store.setScanning(id, true); }
+  let pending = store.pendingAlerts(EPOCH);
   assert.equal(pending.length, 2);
   assert.equal(pending[0].message, 'alert text');
+  assert.equal(pending[0].token_address, 'TokenA');
+  // Alerts created before the freshness cutoff are not pending any more.
+  assert.equal(store.pendingAlerts(new Date(Date.now() + 60_000).toISOString()).length, 0);
 
   store.recordAttempt(pending[0].id);
   store.markSent(pending[0].id);
-  assert.deepEqual(store.pendingAlerts().map((a) => a.user_id), [57]);
+  assert.deepEqual(store.pendingAlerts(EPOCH).map((a) => a.user_id), [57]);
+  store.setScanning(57, false);
+  assert.equal(store.pendingAlerts(EPOCH).length, 0); // /scan off empties the queue
+  store.setScanning(57, true);
   store.abandonAlert(pending[1].id);
-  assert.equal(store.pendingAlerts().length, 0);
+  assert.equal(store.pendingAlerts(EPOCH).length, 0);
 
   store.markSeen('PoolA', '2026-11-17T08:00:00.000Z');
   assert.equal(store.wasSeen('PoolA'), true);
   store.pruneSeen('2026-11-18T00:00:00.000Z');
   assert.equal(store.wasSeen('PoolA'), false);
+  store.close();
+});
+
+test('the watch list: added once per token, due oldest-checked first, expired by time', () => {
+  const store = openStore(':memory:');
+  const add = (token, lastChecked) => store.addCandidate({ tokenAddress: token, poolAddress: `pool-${token}`, name: token,
+    dexId: 'pump-fun', discoveredAt: '2026-11-17T14:00:00.000Z', expiresAt: '2026-11-17T14:30:00.000Z', lastChecked });
+  assert.equal(add('A', '2026-11-17T14:00:00.000Z'), true);
+  assert.equal(add('A', null), false); // same token, second pool: one watch entry
+  add('B', null);
+  add('C', '2026-11-17T13:59:00.000Z');
+  assert.deepEqual(store.dueCandidates('2026-11-17T14:01:00.000Z', 10).map((c) => c.tokenAddress), ['B', 'C', 'A']);
+  assert.deepEqual(store.dueCandidates('2026-11-17T14:01:00.000Z', 2).map((c) => c.tokenAddress), ['B', 'C']);
+  store.markChecked(['B'], '2026-11-17T14:02:00.000Z');
+  assert.deepEqual(store.dueCandidates('2026-11-17T14:02:00.000Z', 1).map((c) => c.tokenAddress), ['C']);
+  assert.equal(store.countCandidates(), 3);
+  assert.deepEqual(store.dueCandidates('2026-11-17T14:30:00.000Z', 10), []); // expired: never due
+  store.expireCandidates('2026-11-17T14:30:00.000Z');
+  assert.equal(store.countCandidates(), 0);
+  store.close();
+});
+
+test('transactions commit together or roll back together', () => {
+  const store = openStore(':memory:');
+  assert.throws(() => store.transaction(() => { store.markSeen('X', 'now'); throw new Error('boom'); }), /boom/);
+  assert.equal(store.wasSeen('X'), false);
+  store.transaction(() => store.markSeen('Y', 'now'));
+  assert.equal(store.wasSeen('Y'), true);
   store.close();
 });
 

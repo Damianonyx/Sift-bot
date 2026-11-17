@@ -58,7 +58,7 @@ test('describe -> approve -> check: the full flow with evidence in every reply',
   assert.match(check, /✓ require selected-pool liquidity/);
   assert.match(check, /✗ require market cap/);
   assert.match(check, /Warning-only checks:/);
-  assert.match(check, /best liquidity of 30 Solana pools/);
+  assert.match(check, /highest liquidity of 30 Solana pools \(DexScreener\)/);
   assert.match(check, /does not make a token safe or profitable/);
 
   // The saved rules survive into a view, and /approve without a draft is safe.
@@ -111,14 +111,62 @@ test('/scan needs approved criteria, warns about data-poor fields, and turns off
   await text(ctx, '/approve');
   const on = await text(ctx, '/scan on');
   assert.match(on, /Scanning is on with criteria v1/);
-  // The approved rules require market cap, which brand-new pools usually lack.
-  assert.match(on, /no market cap or FDV data yet/);
+  assert.match(on, /re-checked on DexScreener for 30 minutes/);
+  // The approved rules require liquidity, which bonding-curve tokens lack on DexScreener.
+  assert.match(on, /no liquidity for pump\.fun tokens still on their bonding curve/);
   assert.match(await text(ctx, '/status'), /Scanning: on \(no check has run yet\)/);
-  ctx.store.setLastScan({ at: '2026-11-17T08:00:00.000Z', ok: true, pools: 20, newMatches: 1 });
-  assert.match(await text(ctx, '/scan'), /last check 08:00 UTC: 20 new pools, 1 new match overall/);
+  ctx.store.setLastScan({ at: '2026-11-17T08:00:00.000Z', ok: true, newPools: 37, watching: 1104, newMatches: 1 });
+  assert.match(await text(ctx, '/scan'), /last check 08:00 UTC: 37 new pools, watching 1,104 tokens from new pools, 1 new match for all testers/);
+  ctx.store.setLastScan({ at: '2026-11-17T08:01:00.000Z', ok: false, reason: 'RATE_LIMITED', newPools: 0, watching: 1104, newMatches: 0 });
+  assert.match(await text(ctx, '/scan'), /finding new pools failed at 08:01 UTC \(GeckoTerminal rate-limited\); retrying\. Tokens already being watched are still re-checked/);
   assert.match(await text(ctx, '/scan off'), /Scanning stopped/);
   assert.match(await text(ctx, '/scan off'), /already off/);
   assert.match(await text(ctx, '/status'), /Scanning: off/);
+});
+
+test('a pasted token address is checked directly, with no Claude call, and is tap-to-copy', async () => {
+  const ctx = makeCtx();
+  await text(ctx, `/criteria ${DESCRIPTION}`);
+  await text(ctx, '/approve');
+  let routed = 0;
+  ctx.claude = { available: true, routeCommand: async () => { routed += 1; return 'help'; } };
+  const reply = await respond(update(`  ${BONK}  `), ctx);
+  assert.match(reply.text, /Does NOT pass your criteria v1/);
+  assert.equal(routed, 0);
+  const code = reply.entities.find((e) => e.type === 'code');
+  assert.equal(reply.text.slice(code.offset, code.offset + code.length), BONK);
+});
+
+test('describing rules in plain words, without /criteria, proposes them for approval', async () => {
+  const ctx = makeCtx();
+  const routes = [];
+  const proposed = [];
+  ctx.claude = {
+    available: true,
+    routeCommand: async (msg) => { routes.push(msg); return 'criteria'; },
+    proposeCriteria: async (msg) => { proposed.push(msg); return PROPOSAL; },
+  };
+  const reply = await text(ctx, DESCRIPTION);
+  assert.match(reply, /Proposed screening rules \u2014 nothing is active yet/);
+  assert.deepEqual(routes, [DESCRIPTION]);
+  assert.deepEqual(proposed, [DESCRIPTION]); // the whole message is the description
+  assert.match(await text(ctx, '/status'), /a proposal is waiting for \/approve/);
+});
+
+test('/id makes the ID tap-to-copy, also for testers not yet allowed', async () => {
+  const ctx = makeCtx();
+  const reply = await respond(update('/id', 777), ctx);
+  const code = reply.entities.find((e) => e.type === 'code');
+  assert.equal(reply.text.slice(code.offset, code.offset + code.length), '777');
+});
+
+test('approving new rules while scanning says scanning continues with the new version', async () => {
+  const ctx = makeCtx();
+  await text(ctx, `/criteria ${DESCRIPTION}`);
+  assert.match(await text(ctx, '/approve'), /Turn on automatic alerts with \/scan on/);
+  await text(ctx, '/scan on');
+  await text(ctx, `/criteria ${DESCRIPTION}`);
+  assert.match(await text(ctx, '/approve'), /Scanning continues with v2/);
 });
 
 test('plain language still routes to fixed replies and criteria state shows in status', async () => {

@@ -1,22 +1,25 @@
 import { SOLANA_ADDRESS } from './market-data.js';
 
-// Newest Solana pools from GeckoTerminal's public API (no key). The API
-// reports numbers as strings and omits market cap and FDV on most brand-new
-// pools; both map to `unknown`, never to a guess, so criteria that require
-// those fields correctly hold back alerts until the data exists.
-const ENDPOINT = 'https://api.geckoterminal.com/api/v2/networks/solana/new_pools?page=1';
-const MAX_POOLS = 20;
+// Newest Solana pools from GeckoTerminal's public API (no key). Around 40
+// pools launch per minute at busy times and a page holds 20, so each scan
+// reads up to `maxPages` pages, stopping early once a page reaches pools that
+// were already seen. The API reports numbers as strings and has no market cap
+// or FDV for brand-new pools; missing values map to `unknown`, never a guess.
+const ENDPOINT = 'https://api.geckoterminal.com/api/v2/networks/solana/new_pools?page=';
+export const PROVIDER = 'GeckoTerminal';
+export const DEFAULT_MAX_PAGES = 3;
+const PAGE_SIZE = 20;
 
 const parseNumber = (value) => {
   const n = typeof value === 'string' && value.trim() !== '' ? Number(value) : (typeof value === 'number' ? value : NaN);
   return Number.isFinite(n) ? n : NaN;
 };
 const metric = (value, asOf) => (Number.isFinite(value)
-  ? { value, source: 'live', asOf }
-  : { value: null, source: 'unknown', asOf });
+  ? { value, source: 'live', provider: PROVIDER, asOf }
+  : { value: null, source: 'unknown', provider: null, asOf });
 
-// Exported for tests: one GeckoTerminal pool entry -> { pool..., metrics } or
-// null when the entry cannot be read safely.
+// One GeckoTerminal pool entry -> { pool fields..., metrics }, or null when
+// the entry cannot be read safely.
 export function poolFromEntry(entry, asOf, nowMs) {
   const a = entry?.attributes;
   const tokenAddress = entry?.relationships?.base_token?.data?.id?.replace(/^solana_/, '') ?? '';
@@ -43,29 +46,53 @@ export function poolFromEntry(entry, asOf, nowMs) {
   };
 }
 
-// Returns { ok: true, pools, checkedAt } or { ok: false, reason: 'UNAVAILABLE' }.
-// Never throws and never logs.
-export function createDiscovery({ fetchImpl = fetch, now = Date.now } = {}) {
-  return async function fetchNewPools(signal) {
-    let payload;
-    try {
-      const timeout = AbortSignal.timeout(10_000);
-      const response = await fetchImpl(ENDPOINT, {
-        headers: { accept: 'application/json' },
-        redirect: 'error',
-        signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-      });
-      if (!response.ok) return { ok: false, reason: 'UNAVAILABLE' };
-      payload = await response.json();
-    } catch {
-      return { ok: false, reason: 'UNAVAILABLE' };
+// Returns { entries } or { reason: 'RATE_LIMITED' | 'UNAVAILABLE' }.
+async function fetchPage(fetchImpl, page, signal) {
+  try {
+    const timeout = AbortSignal.timeout(10_000);
+    const response = await fetchImpl(ENDPOINT + page, {
+      headers: { accept: 'application/json' },
+      redirect: 'error',
+      signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
+    });
+    if (response.status === 429) return { reason: 'RATE_LIMITED' };
+    if (!response.ok) return { reason: 'UNAVAILABLE' };
+    const payload = await response.json();
+    return Array.isArray(payload?.data) ? { entries: payload.data } : { reason: 'UNAVAILABLE' };
+  } catch {
+    return { reason: 'UNAVAILABLE' };
+  }
+}
+
+// Returns { ok: true, pools, pages, checkedAt } or { ok: false, reason:
+// 'RATE_LIMITED' | 'UNAVAILABLE' } when even the first page fails. A later
+// page failing keeps the pools already read. `isKnown(poolAddress)` stops
+// paging early.
+export function createDiscovery({ fetchImpl = fetch, now = Date.now, maxPages = DEFAULT_MAX_PAGES } = {}) {
+  return async function fetchNewPools(signal, { isKnown = () => false } = {}) {
+    const pools = [];
+    const addresses = new Set();
+    let pages = 0;
+    let checkedAt = null;
+    for (let page = 1; page <= maxPages; page += 1) {
+      const { entries, reason } = await fetchPage(fetchImpl, page, signal);
+      if (!entries) {
+        if (page === 1) return { ok: false, reason };
+        break;
+      }
+      pages += 1;
+      const nowMs = now();
+      checkedAt ??= new Date(nowMs).toISOString();
+      let reachedKnown = false;
+      for (const entry of entries) {
+        const pool = poolFromEntry(entry, new Date(nowMs).toISOString(), nowMs);
+        if (!pool || addresses.has(pool.poolAddress)) continue;
+        if (isKnown(pool.poolAddress)) reachedKnown = true;
+        addresses.add(pool.poolAddress);
+        pools.push(pool);
+      }
+      if (reachedKnown || entries.length < PAGE_SIZE) break;
     }
-    if (!Array.isArray(payload?.data)) return { ok: false, reason: 'UNAVAILABLE' };
-    const nowMs = now();
-    const checkedAt = new Date(nowMs).toISOString();
-    const pools = payload.data.slice(0, MAX_POOLS)
-      .map((entry) => poolFromEntry(entry, checkedAt, nowMs))
-      .filter(Boolean);
-    return { ok: true, pools, checkedAt };
+    return { ok: true, pools, pages, checkedAt };
   };
 }

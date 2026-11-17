@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { evaluate, formatEvaluation, formatProposal, isValidRule } from '../src/rules.js';
 
 const rule = (over = {}) => ({ field: 'liquidityUsd', op: 'gte', value: 10_000, severity: 'require', evidence: '10k liquidity', ...over });
-const live = (value) => ({ value, source: 'live', asOf: '2026-11-16T19:00:00.000Z' });
+const live = (value) => ({ value, source: 'live', provider: 'DexScreener', asOf: '2026-11-16T19:00:00.000Z' });
 const UNKNOWN = { value: null, source: 'unknown', asOf: '2026-11-16T19:00:00.000Z' };
 
 test('rule validation rejects unknown fields, ops, severities and bad values', () => {
@@ -54,12 +54,12 @@ test('formatting quotes evidence, labels provenance, and separates mcap from FDV
   const evaluation = evaluate(proposal.rules, { liquidityUsd: live(23_411), fdvUsd: UNKNOWN });
   const reply = formatEvaluation(evaluation, {
     version: 1, address: 'So1...', checkedAt: '2026-11-16T19:05:00.000Z',
-    pool: { base: 'BONK', quote: 'SOL', dexId: 'meteora', url: 'https://dexscreener.com/solana/x', poolCount: 30 },
+    pool: { name: 'BONK / SOL', dexId: 'meteora', url: 'https://dexscreener.com/solana/x', poolCount: 30, selection: 'highest liquidity' },
   });
   assert.match(reply, /NOT CONFIRMED/);
-  assert.match(reply, /\$23,411 \(live, 19:00 UTC\)/);
+  assert.match(reply, /\$23,411 \(DexScreener, 19:00 UTC\)/); // provider and time, per value
   assert.match(reply, /\? .*fully diluted valuation.*unknown/);
-  assert.match(reply, /best liquidity of 30 Solana pools/);
+  assert.match(reply, /Pool: BONK \/ SOL on meteora \u2014 highest liquidity of 30 Solana pools/);
   assert.match(reply, /Unknown values never satisfy required rules/);
   assert.match(reply, /does not make a token safe or profitable/);
 });

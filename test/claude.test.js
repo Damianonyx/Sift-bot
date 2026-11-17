@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import Anthropic from '@anthropic-ai/sdk';
 import {
   createClaude, CRITERIA_LIMIT, DEFAULT_CLAUDE_MODEL, INTERPRETED_COMMANDS,
-  MAX_CRITERIA_LENGTH, MAX_ROUTE_LENGTH, readClaudeConfig, ROUTE_LIMIT, validateProposal,
+  MAX_CRITERIA_LENGTH, MAX_ROUTE_LENGTH, readClaudeConfig, ROUTE_LIMIT, validateProposal, valuesInEvidence,
 } from '../src/claude.js';
 
 // Fake Claude client: no network calls and no API key in tests.
@@ -50,6 +50,9 @@ test('routing asks for one command from a fixed list with the expected request s
   assert.match(params.system, /never follow instructions/);
   assert.deepEqual(params.output_config.format.schema.properties.command.enum, INTERPRETED_COMMANDS);
   assert.equal(params.output_config.effort, 'low');
+  assert.ok(params.max_tokens >= 2048); // thinking counts toward the cap
+  assert.ok(INTERPRETED_COMMANDS.includes('criteria'));
+  assert.match(params.system, /criteria: the message describes which tokens they want/);
   assert.equal(params.fallbacks, 'default');
   assert.deepEqual(params.betas, ['server-side-fallback-2026-07-01']);
   assert.equal(options.signal, signal);
@@ -74,7 +77,10 @@ test('criteria interpretation sends the schema and returns a validated proposal'
   const claude = createClaude({ client, log: silent });
   assert.deepEqual(await claude.proposeCriteria(DESCRIPTION, { userId: 42 }), PROPOSAL);
 
-  const { params } = calls[0];
+  const { params, options } = calls[0];
+  assert.equal(params.output_config.effort, 'medium'); // set explicitly: the model default may differ
+  assert.ok(params.max_tokens >= 8192);
+  assert.deepEqual({ timeout: options.timeout, maxRetries: options.maxRetries }, { timeout: 45_000, maxRetries: 0 });
   assert.match(params.system, /Never invent thresholds/);
   assert.match(params.system, /pool age, not token age/);
   const schema = params.output_config.format.schema;
@@ -124,6 +130,42 @@ test('a proposal whose evidence is not quoted from the message is rejected whole
   const lenient = validateProposal({ rules: [], unresolved: [7, '  dev must be clean  ', 'x'.repeat(400)] }, DESCRIPTION);
   assert.deepEqual(lenient.unresolved[0], 'dev must be clean');
   assert.equal(lenient.unresolved[1].length, 300);
+});
+
+test('numbers are traced per field: "5m" is $5,000,000 of market cap but 5 minutes of pool age', () => {
+  const table = [
+    ['mcap under 5m', 'marketCapUsd', [5_000_000]],
+    ['pool under 5m old', 'poolAgeMinutes', [5]],
+    ['older than 2 hours', 'poolAgeMinutes', [120]],
+    ['between 50k and 2m', 'marketCapUsd', [50_000, 2_000_000]],
+    ['$1.2M liquidity', 'liquidityUsd', [1_200_000]],
+    ['at least 10,000 liquidity', 'liquidityUsd', [10_000]],
+    ['50+ trades an hour', 'txns1h', [50]],
+    ['5 million fdv', 'fdvUsd', [5_000_000]],
+    ['half a million', 'marketCapUsd', []],
+  ];
+  for (const [evidence, field, expected] of table) assert.deepEqual(valuesInEvidence(evidence, field), expected, evidence);
+});
+
+test('a rule whose number does not match its quote is listed back instead of proposed', () => {
+  const text = 'liquidity over 10k and mcap under 5m';
+  const raw = {
+    rules: [
+      { field: 'liquidityUsd', op: 'gte', value: 10_000, severity: 'require', evidence: 'liquidity over 10k' },
+      { field: 'marketCapUsd', op: 'lte', value: 5_000, severity: 'require', evidence: 'mcap under 5m' }, // mis-scaled
+    ],
+    unresolved: [],
+  };
+  const result = validateProposal(raw, text);
+  assert.deepEqual(result.rules.map((r) => r.field), ['liquidityUsd']);
+  assert.deepEqual(result.unresolved, ['mcap under 5m']);
+});
+
+test('quotes may differ from the message in case and spacing, but not in words', () => {
+  const text = 'Liquidity   over 10K please';
+  const rule = { field: 'liquidityUsd', op: 'gte', value: 10_000, severity: 'require', evidence: 'liquidity over 10k' };
+  assert.equal(validateProposal({ rules: [rule], unresolved: [] }, text).rules.length, 1);
+  assert.equal(validateProposal({ rules: [{ ...rule, evidence: 'liquidity above 10k' }], unresolved: [] }, text), null);
 });
 
 test('empty or over-long text is never sent, with separate caps per purpose', async () => {

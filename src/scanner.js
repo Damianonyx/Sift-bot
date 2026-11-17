@@ -1,59 +1,176 @@
 import { setTimeout as delay } from 'node:timers/promises';
+import { telegramMessage } from './message.js';
+import { BATCH_SIZE } from './market-data.js';
 import { evaluate, formatAlert } from './rules.js';
 import { isPermanentReplyError } from './telegram.js';
 
-// The automatic discovery-to-alert loop. Every cycle: fetch the newest Solana
-// pools (only while at least one tester is scanning), evaluate each unseen
-// pool against every scanning tester's approved criteria, record one alert
-// per tester and token in the store's ledger, then deliver pending alerts.
-// Delivery is at-least-once with bounded retries; a tester who blocks the bot
-// has scanning turned off. The loop never throws except on abort: a scanner
-// problem must never take down the reply loop.
+// The automatic discovery-to-alert loop. Each cycle, while at least one
+// allowed tester is scanning:
+//  1. Discover: read GeckoTerminal's newest Solana pools (paging until it
+//     reaches pools already seen).
+//  2. Enrich: brand-new pools have no market cap or FDV on GeckoTerminal, so
+//     those token-level values come from DexScreener in the same cycle. Pool
+//     values (liquidity, volume, trades, age) stay those of the discovered
+//     pool. Every value keeps its provider label.
+//  3. Watch: young tokens stay on a watch list for `watchMs` and are
+//     re-checked on DexScreener in rotating batches, because most criteria
+//     only become true minutes after launch.
+//  4. Alert: a token that satisfies every required rule of a tester's
+//     approved criteria is queued once for that tester (the ledger enforces
+//     one alert per tester and token), then delivered with paced sends.
+// The loop never throws except on abort: a scanner problem must never take
+// down the reply loop.
 export const DEFAULT_SCAN_INTERVAL_MS = 60_000;
+export const DEFAULT_WATCH_MS = 30 * 60_000;
+// Undelivered alerts older than this are dropped rather than sent late.
+export const ALERT_FRESHNESS_MS = 30 * 60_000;
+// Watch-list refresh budget per cycle: up to 20 requests of 30 tokens, 4 at a
+// time. DexScreener publishes 300 requests per minute for this endpoint.
+export const REFRESH_MAX_REQUESTS = 20;
+const REFRESH_CONCURRENCY = 4;
 const SEEN_RETENTION_MS = 24 * 60 * 60 * 1000;
-// Telegram allows roughly one message per second per chat; loose criteria can
-// match a whole page of new pools at once, so alert delivery is paced to keep
-// a burst from tripping rate limits and burning retry attempts.
+// Telegram allows roughly one message per second per chat, so a burst of
+// matches is paced instead of tripping rate limits and burning retries.
 export const ALERT_PACE_MS = 1_100;
 const defaultPace = (ms, signal) => delay(ms, undefined, { signal }).catch(() => {});
 
-// One pass, exported for tests. Returns counts for logging and /scan status.
-export async function runScanCycle({ discovery, store, send, log, signal, now = Date.now, pace = defaultPace }) {
-  const testers = store.scanningAgents();
-  if (testers.length > 0) {
-    const result = await discovery(signal);
-    if (!result.ok) {
-      store.setLastScan({ at: new Date(now()).toISOString(), ok: false });
-    } else {
-      let matches = 0;
-      for (const pool of result.pools) {
-        if (store.wasSeen(pool.poolAddress)) continue;
-        store.markSeen(pool.poolAddress, result.checkedAt);
-        for (const tester of testers) {
-          const evaluation = evaluate(tester.approved.rules, pool.metrics);
-          if (evaluation.verdict !== 'pass') continue;
-          const message = formatAlert(evaluation, { version: tester.version, pool, checkedAt: result.checkedAt });
-          if (store.createAlert(tester.userId, pool.tokenAddress, pool.poolAddress, message)) matches += 1;
-        }
-      }
-      store.setLastScan({ at: result.checkedAt, ok: true, pools: result.pools.length, newMatches: matches });
-      store.pruneSeen(new Date(now() - SEEN_RETENTION_MS).toISOString());
-    }
+const TOKEN_LEVEL = ['marketCapUsd', 'fdvUsd'];
+
+// Pool-level values from the discovered pool; token-level values from
+// DexScreener when the discovery source has none.
+export function mergeTokenLevel(poolMetrics, tokenMetrics) {
+  if (!tokenMetrics) return poolMetrics;
+  const merged = { ...poolMetrics };
+  for (const field of TOKEN_LEVEL) {
+    if (merged[field]?.source !== 'live' && tokenMetrics[field]?.source === 'live') merged[field] = tokenMetrics[field];
   }
-  await deliverPending({ store, send, log, signal, pace });
+  return merged;
 }
 
-async function deliverPending({ store, send, log, signal, pace }) {
-  let first = true;
-  for (const alert of store.pendingAlerts()) {
+// Fetches token data in batches, a few requests at a time. Stops early on a
+// rate limit or outage and returns what it has; never throws. `fetched`
+// lists only tokens whose batch actually came back, so a token whose request
+// never ran keeps its place in the refresh rotation.
+async function fetchInBatches(refresh, tokens, signal, maxRequests) {
+  const batches = [];
+  for (let i = 0; i < tokens.length && batches.length < maxRequests; i += BATCH_SIZE) {
+    batches.push(tokens.slice(i, i + BATCH_SIZE));
+  }
+  const byToken = new Map();
+  const fetched = [];
+  let requests = 0;
+  let degraded = false;
+  for (let i = 0; i < batches.length && !degraded && !signal.aborted; i += REFRESH_CONCURRENCY) {
+    const round = batches.slice(i, i + REFRESH_CONCURRENCY);
+    const results = await Promise.all(round.map((batch) => refresh(batch, signal)));
+    requests += round.length;
+    results.forEach((result, j) => {
+      if (!result.ok) { degraded = true; return; }
+      fetched.push(...round[j]);
+      for (const [token, data] of result.byToken) byToken.set(token, { ...data, checkedAt: result.checkedAt });
+    });
+  }
+  return { byToken, fetched, requests, degraded };
+}
+
+function queueAlerts(store, testers, { tokenAddress, pool, metrics, discoveredAt, checkedAt }) {
+  let queued = 0;
+  for (const tester of testers) {
+    const evaluation = evaluate(tester.approved.rules, metrics);
+    if (evaluation.verdict !== 'pass') continue;
+    const message = formatAlert(evaluation, { version: tester.version, tokenAddress, pool, discoveredAt, checkedAt, metrics });
+    if (store.createAlert(tester.userId, tokenAddress, pool.pairAddress || pool.poolAddress || '', message)) queued += 1;
+  }
+  return queued;
+}
+
+// One pass, exported for tests.
+export async function runScanCycle({
+  discovery, refresh, store, send, log, signal, allowedUserIds,
+  now = Date.now, pace = defaultPace, watchMs = DEFAULT_WATCH_MS, maxRefreshRequests = REFRESH_MAX_REQUESTS,
+}) {
+  // Removing a tester from the allow-list stops their alerts at once.
+  const testers = store.scanningAgents().filter((t) => allowedUserIds.has(t.userId));
+  if (testers.length > 0) {
+    const found = await discovery(signal, { isKnown: (poolAddress) => store.wasSeen(poolAddress) });
     if (signal.aborted) return;
+    let fresh = [];
+    let queued = 0;
+    let enrichmentRequests = 0;
+    if (found.ok) {
+      fresh = found.pools.filter((pool) => !store.wasSeen(pool.poolAddress));
+      store.transaction(() => { for (const pool of fresh) store.markSeen(pool.poolAddress, found.checkedAt); });
+
+      // Same-cycle token-level enrichment for the new pools.
+      const enrichment = await fetchInBatches(refresh, [...new Set(fresh.map((p) => p.tokenAddress))], signal, maxRefreshRequests);
+      enrichmentRequests = enrichment.requests;
+      const nowIso = new Date(now()).toISOString();
+      store.transaction(() => {
+        for (const pool of fresh) {
+          const metrics = mergeTokenLevel(pool.metrics, enrichment.byToken.get(pool.tokenAddress)?.metrics);
+          queued += queueAlerts(store, testers, {
+            tokenAddress: pool.tokenAddress,
+            pool: { name: pool.name, dexId: pool.dexId, poolAddress: pool.poolAddress, url: pool.url },
+            metrics, discoveredAt: found.checkedAt, checkedAt: found.checkedAt,
+          });
+          if (watchMs > 0) {
+            store.addCandidate({
+              tokenAddress: pool.tokenAddress, poolAddress: pool.poolAddress, name: pool.name, dexId: pool.dexId,
+              discoveredAt: found.checkedAt, expiresAt: new Date(Date.parse(found.checkedAt) + watchMs).toISOString(), lastChecked: nowIso,
+            });
+          }
+        }
+      });
+    }
+
+    // Watch-list refresh: the least recently checked young tokens. It runs
+    // even when discovery failed, so a discovery outage does not also freeze
+    // the re-checks of tokens already being watched.
+    let refreshed = 0;
+    if (watchMs > 0 && !signal.aborted) {
+      const nowIso = new Date(now()).toISOString();
+      store.expireCandidates(nowIso);
+      const budget = Math.max(0, maxRefreshRequests - enrichmentRequests);
+      const due = store.dueCandidates(nowIso, budget * BATCH_SIZE).filter((c) => !fresh.some((p) => p.tokenAddress === c.tokenAddress));
+      if (due.length > 0) {
+        const watched = await fetchInBatches(refresh, due.map((c) => c.tokenAddress), signal, budget);
+        store.transaction(() => {
+          for (const candidate of due) {
+            const data = watched.byToken.get(candidate.tokenAddress);
+            if (!data) continue;
+            refreshed += 1;
+            queued += queueAlerts(store, testers, {
+              tokenAddress: candidate.tokenAddress, pool: data.pool, metrics: data.metrics,
+              discoveredAt: candidate.discoveredAt, checkedAt: data.checkedAt,
+            });
+          }
+          store.markChecked(watched.fetched, new Date(now()).toISOString());
+        });
+      }
+    }
+    store.setLastScan({
+      at: found.checkedAt ?? new Date(now()).toISOString(), ok: found.ok, reason: found.ok ? undefined : found.reason,
+      newPools: fresh.length, pages: found.pages ?? 0, refreshed, watching: store.countCandidates(), newMatches: queued,
+    });
+    store.pruneSeen(new Date(now() - SEEN_RETENTION_MS).toISOString());
+    if (queued > 0) log.info?.(`Scan: queued ${queued} alert${queued === 1 ? '' : 's'}.`);
+  }
+  await deliverPending({ store, send, log, signal, pace, allowedUserIds, now });
+}
+
+async function deliverPending({ store, send, log, signal, pace, allowedUserIds, now }) {
+  let first = true;
+  const since = new Date(now() - ALERT_FRESHNESS_MS).toISOString();
+  for (const alert of store.pendingAlerts(since)) {
+    if (signal.aborted) return;
+    if (!allowedUserIds.has(alert.user_id)) continue;
     if (!first) await pace(ALERT_PACE_MS, signal);
     first = false;
     if (signal.aborted) return;
     // Count the attempt first, so a crash mid-send can never retry forever.
     store.recordAttempt(alert.id);
     try {
-      await send({ chat_id: alert.user_id, text: alert.message }, signal);
+      await send(telegramMessage(alert.user_id, alert.message, [alert.token_address]), signal);
       store.markSent(alert.id);
     } catch (error) {
       if (signal.aborted) return;
@@ -70,13 +187,13 @@ async function deliverPending({ store, send, log, signal, pace }) {
 }
 
 export async function runScanner({
-  discovery, store, send, signal, log = console,
-  intervalMs = DEFAULT_SCAN_INTERVAL_MS, now = Date.now,
+  discovery, refresh, store, send, signal, allowedUserIds, log = console,
+  intervalMs = DEFAULT_SCAN_INTERVAL_MS, watchMs = DEFAULT_WATCH_MS, now = Date.now,
 }) {
   let sourceDownLogged = false;
   while (!signal.aborted) {
     try {
-      await runScanCycle({ discovery, store, send, log, signal, now, pace: defaultPace });
+      await runScanCycle({ discovery, refresh, store, send, log, signal, allowedUserIds, now, watchMs, pace: defaultPace });
       const last = store.getLastScan();
       if (last?.ok === false && !sourceDownLogged) {
         log.warn('Discovery source unavailable; scanning keeps retrying. /scan shows this to testers.');

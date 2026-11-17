@@ -88,9 +88,10 @@ export function formatSaved(agent) {
 
 const MARKS = { pass: '✓', fail: '✗', unknown: '?' };
 const time = (asOf) => (asOf ? `${new Date(asOf).toISOString().slice(11, 16)} UTC` : 'no timestamp');
+// Each value names the provider that reported it and when, or says unknown.
 const checkLine = ({ rule, metric, outcome }) => outcome === 'unknown'
   ? `${MARKS.unknown} ${ruleText(rule)} — unknown (not provided by the data source for this pool)`
-  : `${MARKS[outcome]} ${ruleText(rule)} — ${formatValue(rule.field, metric.value)} (${metric.source}, ${time(metric.asOf)})`;
+  : `${MARKS[outcome]} ${ruleText(rule)} — ${formatValue(rule.field, metric.value)} (${metric.provider ?? metric.source}, ${time(metric.asOf)})`;
 
 export function formatEvaluation({ verdict, checks }, { version, address, pool, checkedAt }) {
   const headers = {
@@ -101,7 +102,7 @@ export function formatEvaluation({ verdict, checks }, { version, address, pool, 
   const required = checks.filter((c) => c.rule.severity === 'require');
   const warnings = checks.filter((c) => c.rule.severity === 'warn');
   const lines = [headers[verdict], '', `Token: ${address}`,
-    `Pool: ${pool.base}/${pool.quote} on ${pool.dexId} — best liquidity of ${pool.poolCount} Solana pool${pool.poolCount === 1 ? '' : 's'} via DexScreener`,
+    `Pool: ${pool.name} on ${pool.dexId} — ${pool.selection} of ${pool.poolCount} Solana pool${pool.poolCount === 1 ? '' : 's'} (DexScreener)`,
     pool.url, '', ...required.map(checkLine)];
   if (warnings.length) lines.push('', 'Warning-only checks:', ...warnings.map(checkLine));
   lines.push('', `Checked ${checkedAt}. Unknown values never satisfy required rules.`,
@@ -109,21 +110,24 @@ export function formatEvaluation({ verdict, checks }, { version, address, pool, 
   return lines.join('\n');
 }
 
-// A discovery alert: a brand-new pool whose live values satisfied every
-// required rule. Unknown-verdict pools never alert, so an alert can only
-// carry known, timestamped values.
-export function formatAlert({ checks }, { version, pool, checkedAt }) {
+// A discovery alert: a young token whose live values satisfied every
+// required rule, either at launch or while it was being watched afterwards.
+// Unknown-verdict tokens never alert, so an alert only carries known,
+// provider-labelled, timestamped values.
+export function formatAlert({ checks }, { version, tokenAddress, pool, discoveredAt, checkedAt, metrics = {} }) {
   const required = checks.filter((c) => c.rule.severity === 'require');
   const warnings = checks.filter((c) => c.rule.severity === 'warn');
+  const age = metrics.poolAgeMinutes?.source === 'live' ? ` — pool age ${formatValue('poolAgeMinutes', metrics.poolAgeMinutes.value)}` : '';
   const lines = [
-    `Sift alert: a new pool matches your criteria v${version}.`, '',
-    `${pool.name} on ${pool.dexId}`,
-    `Token: ${pool.tokenAddress}`,
+    `Sift alert: ${pool.name} matches your criteria v${version}.`, '',
+    `Token: ${tokenAddress}`,
+    `Pool: ${pool.name} on ${pool.dexId}${age}`,
     pool.url, '',
     ...required.map(checkLine),
   ];
   if (warnings.length) lines.push('', 'Warning-only checks:', ...warnings.map(checkLine));
-  lines.push('', `Found ${checkedAt} in GeckoTerminal's newest Solana pools. One alert per token; /scan off stops alerts.`,
+  lines.push('', `First seen by Sift ${time(discoveredAt)} among GeckoTerminal's newest Solana pools; values checked ${time(checkedAt)}.`,
+    'One alert per token; /scan off stops alerts.',
     'Matching your rules does not make a token safe or profitable. New pools are where most scams live: verify before acting.');
   return lines.join('\n');
 }
